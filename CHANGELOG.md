@@ -10,4 +10,5 @@
 - PNG language flags.
 - Optional Cloudflare configuration without hardcoded production zone data.
 - Optional phpMyAdmin one-time-token integration.
+- Fresh Debian/Ubuntu installs configure Fail2Ban SSH protection with the systemd journal backend.
 - GPL-3.0 licensing and GitHub-safe secret exclusions.
