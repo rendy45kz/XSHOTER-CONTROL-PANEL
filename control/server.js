@@ -1,5 +1,6 @@
 'use strict';
 const http = require('node:http');
+const https = require('node:https');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -11,6 +12,9 @@ const STATIC = process.env.XSHOTER_WEB_DIR || '/opt/xshoter-control/web';
 const AGENT = process.env.XSHOTER_AGENT_SOCKET || '/run/xshoter-agent.sock';
 const SETUP = process.env.XSHOTER_SETUP_TOKEN_FILE || '/var/lib/xshoter-control/setup.token';
 const VERSION = '1.0.0';
+const UPDATE_REPO = process.env.XSHOTER_UPDATE_REPO || 'rendy45kz/XSHOTER-CONTROL-PANEL';
+const UPDATE_API = process.env.XSHOTER_UPDATE_API || `https://api.github.com/repos/${UPDATE_REPO}/releases/latest`;
+let releaseCache={at:0,data:null};
 const db = new DatabaseSync(DBFILE);
 db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY,username TEXT UNIQUE NOT NULL,password_hash TEXT NOT NULL,role TEXT NOT NULL DEFAULT 'admin',totp_secret TEXT,created_at INTEGER NOT NULL);
@@ -43,6 +47,10 @@ function totpOK(secret,code){if(!secret||!/^[0-9]{6}$/.test(String(code)))return
 function loginBlocked(k){const r=rate.get(k);if(!r)return false;if(r.block&&r.block>now())return true;if(now()-r.start>600)rate.delete(k);return false}
 function loginFail(k){let r=rate.get(k)||{n:0,start:now(),block:0};if(now()-r.start>600)r={n:0,start:now(),block:0};r.n++;if(r.n>=5)r.block=now()+900;rate.set(k,r)}
 function loginClear(k){rate.delete(k)}
+function semver(v){const m=String(v||'').replace(/^v/i,'').match(/^(\d+)\.(\d+)\.(\d+)/);return m?m.slice(1).map(Number):[0,0,0]}
+function versionNewer(latest,current){const a=semver(latest),b=semver(current);for(let i=0;i<3;i++){if(a[i]>b[i])return true;if(a[i]<b[i])return false}return false}
+function fetchJSON(url){return new Promise((resolve,reject)=>{let done=false;const q=https.get(url,{headers:{'user-agent':`Xshoter-Control/${VERSION}`,'accept':'application/vnd.github+json'}},r=>{if(r.statusCode>=300&&r.statusCode<400&&r.headers.location){r.resume();fetchJSON(r.headers.location).then(resolve,reject);return}if(r.statusCode!==200){r.resume();reject(new Error(`release API HTTP ${r.statusCode}`));return}let a=[],n=0;r.on('data',c=>{n+=c.length;if(n>1048576){q.destroy(new Error('release response too large'));return}a.push(c)});r.on('end',()=>{if(done)return;done=true;try{resolve(JSON.parse(Buffer.concat(a).toString()))}catch{reject(new Error('invalid release response'))}})});q.setTimeout(8000,()=>q.destroy(new Error('release API timeout')));q.on('error',e=>{if(!done){done=true;reject(e)}})})}
+async function getUpdateInfo(force=false){const t=Date.now();if(!force&&releaseCache.data&&t-releaseCache.at<300000)return releaseCache.data;const r=await fetchJSON(UPDATE_API);const latest=String(r.tag_name||'').replace(/^v/i,'');if(!latest)throw new Error('latest release tag missing');const data={ok:true,current:VERSION,latest,available:versionNewer(latest,VERSION),channel:'stable',title:String(r.name||r.tag_name||latest),published_at:r.published_at||'',release_url:String(r.html_url||`https://github.com/${UPDATE_REPO}/releases/latest`),notes:String(r.body||'').slice(0,6000)};releaseCache={at:t,data};return data}
 function securityHeaders(res){res.setHeader('x-content-type-options','nosniff');res.setHeader('x-frame-options','DENY');res.setHeader('referrer-policy','same-origin');res.setHeader('permissions-policy','camera=(), microphone=(), geolocation=()');res.setHeader('content-security-policy',"default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src 'self'")}
 function agent(method,payloadPath,data){return new Promise((resolve,reject)=>{const b=data?Buffer.from(JSON.stringify(data)):null;const q=http.request({socketPath:AGENT,path:payloadPath,method,headers:b?{'content-type':'application/json','content-length':b.length}:{}},r=>{let a=[];r.on('data',c=>a.push(c));r.on('end',()=>{const raw=Buffer.concat(a).toString();let v;try{v=JSON.parse(raw)}catch{v={ok:false,error:raw||'invalid agent response'}}resolve({status:r.statusCode||500,data:v})})});q.setTimeout(70000,()=>q.destroy(new Error('agent timeout')));q.on('error',reject);if(b)q.write(b);q.end()})}
 async function authRoutes(req,res,u){
@@ -51,6 +59,7 @@ async function authRoutes(req,res,u){
  if(u.pathname==='/api/login'&&req.method==='POST'){const k=ip(req);if(loginBlocked(k)){json(res,429,{ok:false,error:'too many login attempts'});return true}let b;try{b=await readBody(req)}catch{json(res,400,{ok:false,error:'invalid json'});return true}const user=db.prepare('SELECT * FROM users WHERE username=?').get(String(b.username||''));if(!user||!passOK(String(b.password||''),user.password_hash)){loginFail(k);json(res,401,{ok:false,error:'invalid credentials'});return true}if(user.totp_secret&&!b.otp){json(res,401,{ok:false,error:'otp_required',otp_required:true});return true}if(user.totp_secret&&!totpOK(user.totp_secret,b.otp)){loginFail(k);json(res,401,{ok:false,error:'invalid otp'});return true}loginClear(k);const csrf=setSession(res,user);audit(user.username,'login','panel',req);json(res,200,{ok:true,user:{username:user.username,role:user.role},csrf});return true}
  if(u.pathname==='/api/logout'&&req.method==='POST'){const s=needAuth(req,res);if(!s)return true;if(!needCSRF(req,res,s))return true;destroySession(req,res);audit(s.username,'logout','panel',req);json(res,200,{ok:true});return true}
  if(u.pathname==='/api/me'&&req.method==='GET'){const s=needAuth(req,res);if(!s)return true;json(res,200,{ok:true,user:{username:s.username,role:s.role,twofa:!!s.totp_secret},csrf:s.csrf,version:VERSION});return true}
+ if(u.pathname==='/api/update-info'&&req.method==='GET'){const s=needAuth(req,res);if(!s)return true;try{json(res,200,await getUpdateInfo(u.searchParams.get('refresh')==='1'))}catch(e){json(res,200,{ok:false,current:VERSION,latest:'',available:false,channel:'stable',error:e.message})}return true}
  return false
 }
 async function accountRoutes(req,res,u){
@@ -148,7 +157,8 @@ const server=http.createServer(async(req,res)=>{
   if(await adminRoutes(req,res,u))return;
   if(await uploadRoute(req,res,u))return;
   if(await proxyRoute(req,res,u))return;
-  if(u.pathname.startsWith('/api/')){json(res,404,{ok:false,error:'api not found'});return}
+  if(u.pathname.startsWith('/api/')){json(res,404,{ok:false,error:'api not found'});return
+  }
   serveStatic(req,res,u)
  }catch(e){console.error(new Date().toISOString(),e);if(!res.headersSent)json(res,500,{ok:false,error:'internal error'});else res.end()}
 });
