@@ -1,0 +1,21 @@
+[Unit]
+Description=Xshoter Control Privileged Agent
+After=network.target mariadb.service nginx.service
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/xshoter-control/xshoter.env
+ExecStart=/opt/xshoter-agent/xshoter-agent
+Restart=on-failure
+RestartSec=2
+User=root
+Group=root
+UMask=0077
+PrivateTmp=true
+ProtectHome=false
+ProtectSystem=false
+NoNewPrivileges=false
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

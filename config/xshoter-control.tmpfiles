@@ -1,0 +1,3 @@
+d /run/xshoter-control 0770 root www-data -
+d /run/xshoter-control/pma-tokens 0770 root www-data -
+d /run/xshoter-control/pma-sessions 0770 root www-data -

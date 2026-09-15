@@ -1,0 +1,14 @@
+[Unit]
+Description=Xshoter Firewall Rules
+DefaultDependencies=no
+Wants=network-pre.target local-fs.target
+Before=network-pre.target
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/sbin/iptables-restore --wait=10 /etc/xshoter-control/firewall/iptables.rules
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,33 @@
+[Unit]
+Description=Xshoter Control API and UI
+After=network-online.target xshoter-agent.service mariadb.service
+Wants=network-online.target
+Requires=xshoter-agent.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/xshoter-control
+EnvironmentFile=-/etc/xshoter-control/xshoter.env
+ExecStart=/usr/bin/node /opt/xshoter-control/server.js
+Restart=on-failure
+RestartSec=3
+UMask=0027
+Environment=NODE_NO_WARNINGS=1
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+ReadWritePaths=/var/lib/xshoter-control /etc/xshoter-control
+
+[Install]
+WantedBy=multi-user.target
