@@ -25,9 +25,10 @@ jobs:
           node --check control/web/app.js
           node --check control/web/features.js
           node --check control/web/i18n.js
+          node --check control/web/update-v101.js
       - name: Go build
         run: cd agent && go build ./...
       - name: Shell syntax
-        run: bash -n scripts/install.sh scripts/install-phpmyadmin.sh
+        run: bash -n scripts/install.sh scripts/install-phpmyadmin.sh scripts/upgrade.sh scripts/xshoter-updater.sh
       - name: PHP syntax
         run: php -l phpmyadmin/xshoter-sso.php
