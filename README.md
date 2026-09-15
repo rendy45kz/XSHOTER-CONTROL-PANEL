@@ -30,19 +30,20 @@ The control service runs as `www-data` on `127.0.0.1:9100`. Privileged system op
 
 ## Supported systems
 
-The included installer targets Debian and Ubuntu. The project currently expects:
+The included installer targets Debian and Ubuntu. A full clean-install validation has been completed on Debian 12. The project currently expects:
 
 - Node.js 22 or newer (`node:sqlite` is used)
 - Go 1.18 or newer to build the agent
 - Nginx
 - MariaDB
 - PHP-FPM
+- Certbot
 - systemd
 - iptables
 - OpenSSH
 - Fail2Ban
 
-The installer installs Node.js 22 from the NodeSource APT repository when the system Node.js version is too old.
+The installer installs Node.js 22 from the NodeSource APT repository when the system Node.js version is too old. Fresh installs also configure the Xshoter-managed Nginx site include and the Fail2Ban SSH jail to use the systemd journal backend.
 
 ## Install
 
