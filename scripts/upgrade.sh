@@ -12,6 +12,7 @@ node --check "$ROOT/control/server.js"
 node --check "$ROOT/control/web/app.js"
 node --check "$ROOT/control/web/features.js"
 node --check "$ROOT/control/web/i18n.js"
+node --check "$ROOT/control/web/update-v101.js"
 bash -n "$ROOT/scripts/upgrade.sh" "$ROOT/scripts/xshoter-updater.sh"
 ( cd "$ROOT/agent" && go build -trimpath -ldflags="-s -w" -o "$BUILD/xshoter-agent" . )
 
