@@ -43,6 +43,10 @@ install -d -o www-data -g www-data -m 0750 /var/lib/xshoter-control
 install -d -m 0700 /var/lib/xshoter-control/secrets /var/lib/xshoter-control/secrets/db
 install -d -m 0750 /var/lib/xshoter-control/backups /var/log/xshoter-control
 install -d -m 0750 /etc/xshoter-control /etc/xshoter-control/tls /etc/xshoter-control/firewall
+if [ ! -s /etc/xshoter-control/firewall/iptables.rules ]; then
+  iptables-save -t filter > /etc/xshoter-control/firewall/iptables.rules
+  chmod 0640 /etc/xshoter-control/firewall/iptables.rules
+fi
 if [ ! -f /etc/xshoter-control/xshoter.env ]; then
   cp "$ROOT/config/xshoter.env.example" /etc/xshoter-control/xshoter.env
   chmod 0640 /etc/xshoter-control/xshoter.env
