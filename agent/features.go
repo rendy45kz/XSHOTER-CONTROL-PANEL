@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,7 +10,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 )
 
 var packageRE = regexp.MustCompile(`^[a-z0-9][a-z0-9+.-]{0,127}$`)
@@ -534,45 +532,32 @@ func tailText(s string, n int) string {
 }
 
 func cfRequest(method, endpoint string, payload any) (map[string]any, error) {
-	tok, e := os.ReadFile(cfTokenFile)
-	if e != nil {
-		return nil, e
+	c := effectiveCloudflareConfig()
+	if c.APIToken == "" {
+		return nil, fmt.Errorf("cloudflare API token is not configured")
 	}
-	var bodyReader *strings.Reader
-	if payload != nil {
-		b, _ := json.Marshal(payload)
-		bodyReader = strings.NewReader(string(b))
-	} else {
-		bodyReader = strings.NewReader("")
-	}
-	req, e := http.NewRequest(method, "https://api.cloudflare.com/client/v4"+endpoint, bodyReader)
-	if e != nil {
-		return nil, e
-	}
-	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(tok)))
-	req.Header.Set("Content-Type", "application/json")
-	c := &http.Client{Timeout: 20 * time.Second}
-	resp, e := c.Do(req)
-	if e != nil {
-		return nil, e
-	}
-	defer resp.Body.Close()
-	var outv map[string]any
-	if e = json.NewDecoder(resp.Body).Decode(&outv); e != nil {
-		return nil, e
-	}
-	if ok, _ := outv["success"].(bool); !ok {
-		return outv, fmt.Errorf("cloudflare api error")
-	}
-	return outv, nil
+	return cfRequestWithToken(method, endpoint, c.APIToken, payload)
 }
 
 func dnsRecords(w http.ResponseWriter, r *http.Request) {
-	if cfZoneID == "" || cfZoneName == "" {
+	if mode := r.URL.Query().Get("mode"); mode == "config" {
+		cloudflareConfigHandler(w, r)
+		return
+	} else if mode == "test" {
+		cloudflareTestHandler(w, r)
+		return
+	}
+	cfg := effectiveCloudflareConfig()
+	if cfg.APIToken == "" || cfg.ZoneName == "" {
 		fail(w, 503, "cloudflare DNS is not configured")
 		return
 	}
-	base := "/zones/" + cfZoneID + "/dns_records"
+	zoneID, zoneName, e := resolveCFZone(cfg)
+	if e != nil {
+		fail(w, 502, e.Error())
+		return
+	}
+	base := "/zones/" + zoneID + "/dns_records"
 	if r.Method == "GET" {
 		v, e := cfRequest("GET", base+"?per_page=200", nil)
 		if e != nil {
@@ -587,13 +572,13 @@ func dnsRecords(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				n, _ := m["name"].(string)
-				if n != cfZoneName && !strings.HasSuffix(n, "."+cfZoneName) {
+				if n != zoneName && !strings.HasSuffix(n, "."+zoneName) {
 					continue
 				}
 				items = append(items, R{"id": m["id"], "type": m["type"], "name": n, "content": m["content"], "proxied": m["proxied"], "ttl": m["ttl"], "priority": m["priority"]})
 			}
 		}
-		out(w, 200, R{"ok": true, "items": items})
+		out(w, 200, R{"ok": true, "zone": zoneName, "items": items})
 		return
 	}
 	if r.Method == "POST" || r.Method == "PATCH" {
@@ -613,12 +598,12 @@ func dnsRecords(w http.ResponseWriter, r *http.Request) {
 		x.Name = strings.ToLower(strings.TrimSpace(x.Name))
 		x.Content = strings.TrimSpace(x.Content)
 		if x.Name == "@" {
-			x.Name = cfZoneName
+			x.Name = zoneName
 		} else if !strings.Contains(x.Name, ".") {
-			x.Name += "." + cfZoneName
+			x.Name += "." + zoneName
 		}
 		allowed := map[string]bool{"A": true, "AAAA": true, "CNAME": true, "TXT": true, "MX": true}
-		if !allowed[x.Type] || (x.Name != cfZoneName && !strings.HasSuffix(x.Name, "."+cfZoneName)) || len(x.Content) < 1 || len(x.Content) > 2048 {
+		if !allowed[x.Type] || (x.Name != zoneName && !strings.HasSuffix(x.Name, "."+zoneName)) || len(x.Content) < 1 || len(x.Content) > 2048 {
 			fail(w, 400, "invalid DNS record")
 			return
 		}

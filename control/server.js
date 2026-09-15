@@ -131,6 +131,20 @@ const proxyMap={
  '/api/web-logs':'/v1/web-logs','/api/php-settings':'/v1/php-settings','/api/file-actions':'/v1/file-actions',
  '/api/backup-actions':'/v1/backup-actions','/api/dns':'/v1/dns','/api/security-overview':'/v1/security','/api/server-users':'/v1/server-users'
 };
+async function cloudflareRoute(req,res,u){
+ const routes={
+  '/api/cloudflare':'/v1/cloudflare','/api/cloudflare-test':'/v1/cloudflare-test','/api/cloudflare-zones':'/v1/cloudflare-zones',
+  '/api/cloudflare-zone-settings':'/v1/cloudflare-zone-settings','/api/cloudflare-cache':'/v1/cloudflare-cache',
+  '/api/cloudflare-tunnels':'/v1/cloudflare-tunnels','/api/cloudflare-tunnel-routes':'/v1/cloudflare-tunnel-routes'
+ };
+ const target=routes[u.pathname];if(!target)return false;const s=needAuth(req,res);if(!s)return true;
+ const mut=!['GET','HEAD'].includes(req.method);if(mut){if(!ownerOnly(res,s))return true;if(!needCSRF(req,res,s))return true}
+ let b=null;if(mut){b=await readBody(req).catch(()=>null);if(b===null){json(res,400,{ok:false,error:'invalid json'});return true}}
+ let q='';for(const [k,v] of u.searchParams)q+=(q?'&':'?')+encodeURIComponent(k)+'='+encodeURIComponent(v);
+ const a=await agent(req.method,target+q,b).catch(e=>({status:502,data:{ok:false,error:e.message}}));
+ if(mut&&a.data.ok)audit(s.username,'cloudflare_'+req.method.toLowerCase(),u.pathname.replace('/api/',''),req);
+ json(res,a.status,a.data);return true
+}
 async function uploadRoute(req,res,u){
  if(u.pathname!=='/api/upload')return false;
  const s=needAuth(req,res);if(!s)return true;
@@ -158,13 +172,14 @@ async function proxyRoute(req,res,u){
  let b=null;if(mut){b=await readBody(req).catch(()=>null);if(b===null){json(res,400,{ok:false,error:'invalid json'});return true}}
  let q='';for(const [k,v] of u.searchParams)q+=(q?'&':'?')+encodeURIComponent(k)+'='+encodeURIComponent(v);const a=await agent(req.method,target+q,b).catch(e=>({status:502,data:{ok:false,error:e.message}}));if(mut&&a.data.ok)audit(s.username,req.method.toLowerCase()+'_'+u.pathname.split('/').pop(),JSON.stringify(b||{}).slice(0,200),req);json(res,a.status,a.data);return true
 }
-function serveStatic(req,res,u){let p=u.pathname==='/'?'/index.html':u.pathname;if(!['/index.html','/app.css','/app.js','/features.js','/i18n.js','/logo.svg','/flags/id.png','/flags/us.png','/flags/ms.png','/flags/vi.png','/update-v101.js'].includes(p)){p='/index.html'}const f=path.join(STATIC,p);if(!fs.existsSync(f)){res.writeHead(404);res.end('not found');return}const ext=path.extname(f);const ct={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'application/javascript; charset=utf-8','.svg':'image/svg+xml','.png':'image/png'}[ext]||'application/octet-stream';const b=fs.readFileSync(f);res.writeHead(200,{'content-type':ct,'content-length':b.length,'cache-control':ext==='.html'?'no-store':'public,max-age=3600'});res.end(b)}
+function serveStatic(req,res,u){let p=u.pathname==='/'?'/index.html':u.pathname;if(!['/index.html','/app.css','/app.js','/features.js','/i18n.js','/logo.svg','/flags/id.png','/flags/us.png','/flags/ms.png','/flags/vi.png','/update-v101.js','/cloudflare-v102.js'].includes(p)){p='/index.html'}const f=path.join(STATIC,p);if(!fs.existsSync(f)){res.writeHead(404);res.end('not found');return}const ext=path.extname(f);const ct={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'application/javascript; charset=utf-8','.svg':'image/svg+xml','.png':'image/png'}[ext]||'application/octet-stream';const b=fs.readFileSync(f);res.writeHead(200,{'content-type':ct,'content-length':b.length,'cache-control':ext==='.html'?'no-store':'public,max-age=3600'});res.end(b)}
 const server=http.createServer(async(req,res)=>{
  securityHeaders(res);const u=new URL(req.url,'http://local');
  try{
   if(await authRoutes(req,res,u))return;
   if(await accountRoutes(req,res,u))return;
   if(await adminRoutes(req,res,u))return;
+  if(await cloudflareRoute(req,res,u))return;
   if(await uploadRoute(req,res,u))return;
   if(await proxyRoute(req,res,u))return;
   if(u.pathname.startsWith('/api/')){json(res,404,{ok:false,error:'api not found'});return}

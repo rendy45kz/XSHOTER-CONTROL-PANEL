@@ -71,6 +71,13 @@ func main() {
 	m.HandleFunc("/v1/file-upload", fileUpload)
 	m.HandleFunc("/v1/backup-actions", backupActions)
 	m.HandleFunc("/v1/dns", dnsRecords)
+	m.HandleFunc("/v1/cloudflare", cloudflareConfigHandler)
+	m.HandleFunc("/v1/cloudflare-test", cloudflareTestHandler)
+	m.HandleFunc("/v1/cloudflare-zones", cloudflareZonesHandler)
+	m.HandleFunc("/v1/cloudflare-zone-settings", cloudflareZoneSettingsHandler)
+	m.HandleFunc("/v1/cloudflare-cache", cloudflareCacheHandler)
+	m.HandleFunc("/v1/cloudflare-tunnels", cloudflareTunnelsHandler)
+	m.HandleFunc("/v1/cloudflare-tunnel-routes", cloudflareTunnelRoutesHandler)
 	m.HandleFunc("/v1/security", only("GET", securityOverview))
 	m.HandleFunc("/v1/server-users", only("GET", serverUsers))
 	s := &http.Server{Handler: m, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 90 * time.Second}
@@ -285,9 +292,11 @@ func listWebsites(w http.ResponseWriter) {
 }
 func createWebsite(w http.ResponseWriter, r *http.Request) {
 	var v struct {
-		Owner  string `json:"owner"`
-		Domain string `json:"domain"`
-		PHP    string `json:"php"`
+		Owner      string `json:"owner"`
+		Domain     string `json:"domain"`
+		PHP        string `json:"php"`
+		Cloudflare bool   `json:"cloudflare"`
+		TunnelID   string `json:"tunnel_id"`
 	}
 	if body(r, &v) != nil {
 		fail(w, 400, "invalid json")
@@ -346,8 +355,41 @@ func createWebsite(w http.ResponseWriter, r *http.Request) {
 		_, _ = cmd("chown", v.Owner+":"+v.Owner, idx)
 		_ = os.Chmod(idx, 0644)
 	}
-	_ = writeStateJSON(siteMetaPath(v.Domain), R{"owner": v.Owner, "domain": v.Domain, "root": root, "vhost": np, "php": v.PHP, "php_pool": pp, "access_log": logs + "/access.log", "error_log": logs + "/error.log", "tls_mode": "local", "kind": "native"})
-	out(w, 201, R{"ok": true, "domain": v.Domain, "root": root})
+	meta := R{"owner": v.Owner, "domain": v.Domain, "root": root, "vhost": np, "php": v.PHP, "php_pool": pp, "access_log": logs + "/access.log", "error_log": logs + "/error.log", "tls_mode": "local", "kind": "native"}
+	_ = writeStateJSON(siteMetaPath(v.Domain), meta)
+	cf := R{"requested": v.Cloudflare, "ok": false}
+	if v.Cloudflare {
+		cfg := effectiveCloudflareConfig()
+		if strings.TrimSpace(v.TunnelID) != "" {
+			cfg.TunnelID = strings.TrimSpace(v.TunnelID)
+		}
+		cfg, tunnelID, e := cfPickTunnel(cfg)
+		if e == nil {
+			var zoneID, zoneName, zoneStatus string
+			var ns []string
+			cfg, zoneID, zoneName, zoneStatus, ns, e = cfEnsureZoneForHostname(cfg, v.Domain)
+			_ = zoneID
+			if e == nil {
+				listen := envOr("XSHOTER_WEB_LISTEN", "80")
+				service := "http://127.0.0.1:" + listen
+				if strings.Contains(listen, ":") {
+					service = "http://" + listen
+				}
+				e = cfUpsertTunnelRoute(cfg, tunnelID, v.Domain, "", service, false)
+			}
+			if e == nil {
+				meta["tls_mode"] = "cloudflare"
+				meta["cloudflare_zone"] = zoneName
+				meta["cloudflare_tunnel_id"] = tunnelID
+				_ = writeStateJSON(siteMetaPath(v.Domain), meta)
+				cf = R{"requested": true, "ok": true, "zone": zoneName, "zone_status": zoneStatus, "name_servers": ns, "tunnel_id": tunnelID, "hostname": v.Domain}
+			}
+		}
+		if e != nil {
+			cf = R{"requested": true, "ok": false, "error": e.Error()}
+		}
+	}
+	out(w, 201, R{"ok": true, "domain": v.Domain, "root": root, "cloudflare": cf})
 }
 func nginxSite(d, root, logs, socket string) string {
 	return fmt.Sprintf("server {\n listen %s;\n server_name %s;\n root %s;\n index index.php index.html;\n access_log %s/access.log;\n error_log %s/error.log;\n client_max_body_size 128m;\n location / { try_files $uri $uri/ /index.php?$query_string; }\n location ~ \\.php$ { try_files $uri =404; include fastcgi_params; fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name; fastcgi_pass unix:%s; }\n location ~ /\\. { deny all; }\n}\n", envOr("XSHOTER_WEB_LISTEN", "80"), d, root, logs, logs, socket)
