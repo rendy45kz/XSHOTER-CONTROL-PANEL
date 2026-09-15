@@ -11,4 +11,6 @@
 - Optional Cloudflare configuration without hardcoded production zone data.
 - Optional phpMyAdmin one-time-token integration.
 - Fresh Debian/Ubuntu installs configure Fail2Ban SSH protection with the systemd journal backend.
+- Fresh installs include Certbot for local Let's Encrypt certificate issuance.
+- Fresh installs load Xshoter-managed Nginx website vhosts from `/etc/nginx/xshoter/sites-enabled/`.
 - GPL-3.0 licensing and GitHub-safe secret exclusions.
