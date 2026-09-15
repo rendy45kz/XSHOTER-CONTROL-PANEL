@@ -13,4 +13,5 @@
 - Fresh Debian/Ubuntu installs configure Fail2Ban SSH protection with the systemd journal backend.
 - Fresh installs include Certbot for local Let's Encrypt certificate issuance.
 - Fresh installs load Xshoter-managed Nginx website vhosts from `/etc/nginx/xshoter/sites-enabled/`.
+- Fresh installs snapshot the current iptables filter table so panel-managed firewall rules can persist safely.
 - GPL-3.0 licensing and GitHub-safe secret exclusions.
