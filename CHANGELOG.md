@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.1 - 2026-09-15
+
+- Added Xshoter release notifications with a bell beside the language selector.
+- Added stable-release checks against the official GitHub releases feed.
+- Added separate Xshoter application updates and Debian/Ubuntu package updates.
+- Added update modes: Off, Notify Only, and Automatic Stable Updates.
+- Added a root-only updater service and daily systemd timer.
+- Added staging validation, application/database backup, health checks, and automatic rollback.
+- Added authenticated update status/settings/run APIs in the control service with a root-owned systemd path trigger for manual updates.
+- Added archive path, member-type, member-count, and expanded-size safety checks.
+- Preserved existing panel database and configuration during application upgrades.
+
 ## 1.0.0 - 2026-09-15
 
 - Initial public release preparation.
