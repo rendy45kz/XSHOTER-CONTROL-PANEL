@@ -11,9 +11,13 @@ const DBFILE = process.env.XSHOTER_DB_FILE || '/var/lib/xshoter-control/control.
 const STATIC = process.env.XSHOTER_WEB_DIR || '/opt/xshoter-control/web';
 const AGENT = process.env.XSHOTER_AGENT_SOCKET || '/run/xshoter-agent.sock';
 const SETUP = process.env.XSHOTER_SETUP_TOKEN_FILE || '/var/lib/xshoter-control/setup.token';
-const VERSION = '1.0.0';
+const VERSION = '1.0.1';
 const UPDATE_REPO = process.env.XSHOTER_UPDATE_REPO || 'rendy45kz/XSHOTER-CONTROL-PANEL';
 const UPDATE_API = process.env.XSHOTER_UPDATE_API || `https://api.github.com/repos/${UPDATE_REPO}/releases/latest`;
+const UPDATE_STATE = '/var/lib/xshoter-control/update';
+const UPDATE_MODE_FILE = path.join(UPDATE_STATE,'mode');
+const UPDATE_STATUS_FILE = path.join(UPDATE_STATE,'status.json');
+const UPDATE_REQUEST_FILE = path.join(UPDATE_STATE,'request');
 let releaseCache={at:0,data:null};
 const db = new DatabaseSync(DBFILE);
 db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
@@ -51,6 +55,9 @@ function semver(v){const m=String(v||'').replace(/^v/i,'').match(/^(\d+)\.(\d+)\
 function versionNewer(latest,current){const a=semver(latest),b=semver(current);for(let i=0;i<3;i++){if(a[i]>b[i])return true;if(a[i]<b[i])return false}return false}
 function fetchJSON(url){return new Promise((resolve,reject)=>{let done=false;const q=https.get(url,{headers:{'user-agent':`Xshoter-Control/${VERSION}`,'accept':'application/vnd.github+json'}},r=>{if(r.statusCode>=300&&r.statusCode<400&&r.headers.location){r.resume();fetchJSON(r.headers.location).then(resolve,reject);return}if(r.statusCode!==200){r.resume();reject(new Error(`release API HTTP ${r.statusCode}`));return}let a=[],n=0;r.on('data',c=>{n+=c.length;if(n>1048576){q.destroy(new Error('release response too large'));return}a.push(c)});r.on('end',()=>{if(done)return;done=true;try{resolve(JSON.parse(Buffer.concat(a).toString()))}catch{reject(new Error('invalid release response'))}})});q.setTimeout(8000,()=>q.destroy(new Error('release API timeout')));q.on('error',e=>{if(!done){done=true;reject(e)}})})}
 async function getUpdateInfo(force=false){const t=Date.now();if(!force&&releaseCache.data&&t-releaseCache.at<300000)return releaseCache.data;const r=await fetchJSON(UPDATE_API);const latest=String(r.tag_name||'').replace(/^v/i,'');if(!latest)throw new Error('latest release tag missing');const data={ok:true,current:VERSION,latest,available:versionNewer(latest,VERSION),channel:'stable',title:String(r.name||r.tag_name||latest),published_at:r.published_at||'',release_url:String(r.html_url||`https://github.com/${UPDATE_REPO}/releases/latest`),notes:String(r.body||'').slice(0,6000)};releaseCache={at:t,data};return data}
+function readUpdateMode(){try{const m=fs.readFileSync(UPDATE_MODE_FILE,'utf8').trim();return ['off','notify','auto'].includes(m)?m:'notify'}catch{return 'notify'}}
+function readUpdateStatus(){let d={state:'idle',message:'',current:VERSION,latest:'',updated_at:0};try{d={...d,...JSON.parse(fs.readFileSync(UPDATE_STATUS_FILE,'utf8'))}}catch{}const fresh=Number(d.updated_at||0)>now()-1200;return {...d,ok:true,mode:readUpdateMode(),active:fs.existsSync(UPDATE_REQUEST_FILE)||(fresh&&['checking','available','updating','rollback'].includes(String(d.state||'')))}}
+function writeAtomic(p,data,mode=0o640){fs.mkdirSync(path.dirname(p),{recursive:true,mode:0o750});const t=p+'.tmp.'+process.pid;fs.writeFileSync(t,data,{mode});fs.renameSync(t,p)}
 function securityHeaders(res){res.setHeader('x-content-type-options','nosniff');res.setHeader('x-frame-options','DENY');res.setHeader('referrer-policy','same-origin');res.setHeader('permissions-policy','camera=(), microphone=(), geolocation=()');res.setHeader('content-security-policy',"default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src 'self'")}
 function agent(method,payloadPath,data){return new Promise((resolve,reject)=>{const b=data?Buffer.from(JSON.stringify(data)):null;const q=http.request({socketPath:AGENT,path:payloadPath,method,headers:b?{'content-type':'application/json','content-length':b.length}:{}},r=>{let a=[];r.on('data',c=>a.push(c));r.on('end',()=>{const raw=Buffer.concat(a).toString();let v;try{v=JSON.parse(raw)}catch{v={ok:false,error:raw||'invalid agent response'}}resolve({status:r.statusCode||500,data:v})})});q.setTimeout(70000,()=>q.destroy(new Error('agent timeout')));q.on('error',reject);if(b)q.write(b);q.end()})}
 async function authRoutes(req,res,u){
@@ -60,6 +67,9 @@ async function authRoutes(req,res,u){
  if(u.pathname==='/api/logout'&&req.method==='POST'){const s=needAuth(req,res);if(!s)return true;if(!needCSRF(req,res,s))return true;destroySession(req,res);audit(s.username,'logout','panel',req);json(res,200,{ok:true});return true}
  if(u.pathname==='/api/me'&&req.method==='GET'){const s=needAuth(req,res);if(!s)return true;json(res,200,{ok:true,user:{username:s.username,role:s.role,twofa:!!s.totp_secret},csrf:s.csrf,version:VERSION});return true}
  if(u.pathname==='/api/update-info'&&req.method==='GET'){const s=needAuth(req,res);if(!s)return true;try{json(res,200,await getUpdateInfo(u.searchParams.get('refresh')==='1'))}catch(e){json(res,200,{ok:false,current:VERSION,latest:'',available:false,channel:'stable',error:e.message})}return true}
+ if(u.pathname==='/api/update-status'&&req.method==='GET'){const s=needAuth(req,res);if(!s)return true;json(res,200,readUpdateStatus());return true}
+ if(u.pathname==='/api/update-settings'&&req.method==='POST'){const s=needAuth(req,res);if(!s)return true;if(s.role==='viewer'){json(res,403,{ok:false,error:'read only account'});return true}if(!needCSRF(req,res,s))return true;const b=await readBody(req).catch(()=>null);if(!b||!['off','notify','auto'].includes(String(b.mode||''))){json(res,400,{ok:false,error:'invalid update mode'});return true}writeAtomic(UPDATE_MODE_FILE,String(b.mode)+'\n');audit(s.username,'update_mode',String(b.mode),req);json(res,200,{ok:true,mode:String(b.mode)});return true}
+ if(u.pathname==='/api/update-run'&&req.method==='POST'){const s=needAuth(req,res);if(!s)return true;if(s.role==='viewer'){json(res,403,{ok:false,error:'read only account'});return true}if(!needCSRF(req,res,s))return true;const st=readUpdateStatus();if(st.active){json(res,409,{ok:false,error:'Xshoter update is already running'});return true}writeAtomic(UPDATE_REQUEST_FILE,JSON.stringify({requested_at:now(),actor:s.username})+'\n',0o600);audit(s.username,'update_run','stable',req);json(res,202,{ok:true,started:true});return true}
  return false
 }
 async function accountRoutes(req,res,u){
@@ -148,7 +158,7 @@ async function proxyRoute(req,res,u){
  let b=null;if(mut){b=await readBody(req).catch(()=>null);if(b===null){json(res,400,{ok:false,error:'invalid json'});return true}}
  let q='';for(const [k,v] of u.searchParams)q+=(q?'&':'?')+encodeURIComponent(k)+'='+encodeURIComponent(v);const a=await agent(req.method,target+q,b).catch(e=>({status:502,data:{ok:false,error:e.message}}));if(mut&&a.data.ok)audit(s.username,req.method.toLowerCase()+'_'+u.pathname.split('/').pop(),JSON.stringify(b||{}).slice(0,200),req);json(res,a.status,a.data);return true
 }
-function serveStatic(req,res,u){let p=u.pathname==='/'?'/index.html':u.pathname;if(!['/index.html','/app.css','/app.js','/features.js','/i18n.js','/logo.svg','/flags/id.png','/flags/us.png','/flags/ms.png','/flags/vi.png'].includes(p)){p='/index.html'}const f=path.join(STATIC,p);if(!fs.existsSync(f)){res.writeHead(404);res.end('not found');return}const ext=path.extname(f);const ct={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'application/javascript; charset=utf-8','.svg':'image/svg+xml','.png':'image/png'}[ext]||'application/octet-stream';const b=fs.readFileSync(f);res.writeHead(200,{'content-type':ct,'content-length':b.length,'cache-control':ext==='.html'?'no-store':'public,max-age=3600'});res.end(b)}
+function serveStatic(req,res,u){let p=u.pathname==='/'?'/index.html':u.pathname;if(!['/index.html','/app.css','/app.js','/features.js','/i18n.js','/logo.svg','/flags/id.png','/flags/us.png','/flags/ms.png','/flags/vi.png','/update-v101.js'].includes(p)){p='/index.html'}const f=path.join(STATIC,p);if(!fs.existsSync(f)){res.writeHead(404);res.end('not found');return}const ext=path.extname(f);const ct={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'application/javascript; charset=utf-8','.svg':'image/svg+xml','.png':'image/png'}[ext]||'application/octet-stream';const b=fs.readFileSync(f);res.writeHead(200,{'content-type':ct,'content-length':b.length,'cache-control':ext==='.html'?'no-store':'public,max-age=3600'});res.end(b)}
 const server=http.createServer(async(req,res)=>{
  securityHeaders(res);const u=new URL(req.url,'http://local');
  try{
@@ -157,8 +167,7 @@ const server=http.createServer(async(req,res)=>{
   if(await adminRoutes(req,res,u))return;
   if(await uploadRoute(req,res,u))return;
   if(await proxyRoute(req,res,u))return;
-  if(u.pathname.startsWith('/api/')){json(res,404,{ok:false,error:'api not found'});return
-  }
+  if(u.pathname.startsWith('/api/')){json(res,404,{ok:false,error:'api not found'});return}
   serveStatic(req,res,u)
  }catch(e){console.error(new Date().toISOString(),e);if(!res.headersSent)json(res,500,{ok:false,error:'internal error'});else res.end()}
 });
