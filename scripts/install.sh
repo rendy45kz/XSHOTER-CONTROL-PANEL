@@ -14,7 +14,7 @@ fi
 case "${ID:-}" in debian|ubuntu) ;; *) echo "Supported: Debian/Ubuntu." >&2; exit 1;; esac
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y ca-certificates curl gnupg openssl nginx certbot mariadb-server php-fpm php-cli php-mysql fail2ban python3-systemd iptables openssh-server golang-go
+apt-get install -y ca-certificates curl gnupg openssl nginx certbot mariadb-server php-fpm php-cli php-mysql fail2ban python3-systemd iptables openssh-server golang-go util-linux tar
 
 node_ok=0
 if command -v node >/dev/null 2>&1; then
@@ -30,7 +30,7 @@ if [ "$node_ok" -ne 1 ]; then
 fi
 node -e 'if(Number(process.versions.node.split(".")[0])<22)process.exit(1)'
 
-install -d -m 0755 /opt/xshoter-control /opt/xshoter-agent
+install -d -m 0755 /opt/xshoter-control /opt/xshoter-agent /opt/xshoter-updater
 rm -rf /opt/xshoter-control/web
 cp -a "$ROOT/control/server.js" /opt/xshoter-control/server.js
 cp -a "$ROOT/control/web" /opt/xshoter-control/web
@@ -38,11 +38,15 @@ chmod -R a+rX /opt/xshoter-control
 
 ( cd "$ROOT/agent" && go build -trimpath -ldflags="-s -w" -o /opt/xshoter-agent/xshoter-agent . )
 chmod 0755 /opt/xshoter-agent/xshoter-agent
+install -m 0755 "$ROOT/scripts/xshoter-updater.sh" /opt/xshoter-updater/update.sh
 
 install -d -o www-data -g www-data -m 0750 /var/lib/xshoter-control
 install -d -m 0700 /var/lib/xshoter-control/secrets /var/lib/xshoter-control/secrets/db
 install -d -m 0750 /var/lib/xshoter-control/backups /var/log/xshoter-control
+install -d -o www-data -g www-data -m 0750 /var/lib/xshoter-control/update
+install -d -m 0700 /var/lib/xshoter-control/update/backups
 install -d -m 0750 /etc/xshoter-control /etc/xshoter-control/tls /etc/xshoter-control/firewall
+if [ ! -f /var/lib/xshoter-control/update/mode ]; then printf 'notify\n' > /var/lib/xshoter-control/update/mode; chown www-data:www-data /var/lib/xshoter-control/update/mode; chmod 0640 /var/lib/xshoter-control/update/mode; fi
 if [ ! -s /etc/xshoter-control/firewall/iptables.rules ]; then
   iptables-save -t filter > /etc/xshoter-control/firewall/iptables.rules
   chmod 0640 /etc/xshoter-control/firewall/iptables.rules
@@ -61,6 +65,10 @@ fi
 cp "$ROOT/systemd/xshoter-control.service" /etc/systemd/system/
 cp "$ROOT/systemd/xshoter-agent.service" /etc/systemd/system/
 cp "$ROOT/systemd/xshoter-firewall.service" /etc/systemd/system/
+cp "$ROOT/systemd/xshoter-updater.service" /etc/systemd/system/
+cp "$ROOT/systemd/xshoter-updater-auto.service" /etc/systemd/system/
+cp "$ROOT/systemd/xshoter-updater.timer" /etc/systemd/system/
+cp "$ROOT/systemd/xshoter-updater.path" /etc/systemd/system/
 cp "$ROOT/config/xshoter-control.tmpfiles" /etc/tmpfiles.d/xshoter-control.conf
 systemd-tmpfiles --create /etc/tmpfiles.d/xshoter-control.conf
 install -d -m 0755 /etc/nginx/xshoter/sites-enabled
@@ -108,7 +116,8 @@ fail2ban-client -t
 
 nginx -t
 systemctl daemon-reload
-systemctl enable --now mariadb nginx fail2ban xshoter-agent xshoter-control
+systemctl reset-failed xshoter-updater.service xshoter-updater-auto.service 2>/dev/null || true
+systemctl enable --now mariadb nginx fail2ban xshoter-agent xshoter-control xshoter-updater.path xshoter-updater.timer
 systemctl restart xshoter-agent xshoter-control nginx
 
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
