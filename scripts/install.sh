@@ -14,7 +14,7 @@ fi
 case "${ID:-}" in debian|ubuntu) ;; *) echo "Supported: Debian/Ubuntu." >&2; exit 1;; esac
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y ca-certificates curl gnupg openssl nginx mariadb-server php-fpm php-cli php-mysql fail2ban python3-systemd iptables openssh-server golang-go
+apt-get install -y ca-certificates curl gnupg openssl nginx certbot mariadb-server php-fpm php-cli php-mysql fail2ban python3-systemd iptables openssh-server golang-go
 
 node_ok=0
 if command -v node >/dev/null 2>&1; then
@@ -59,6 +59,10 @@ cp "$ROOT/systemd/xshoter-agent.service" /etc/systemd/system/
 cp "$ROOT/systemd/xshoter-firewall.service" /etc/systemd/system/
 cp "$ROOT/config/xshoter-control.tmpfiles" /etc/tmpfiles.d/xshoter-control.conf
 systemd-tmpfiles --create /etc/tmpfiles.d/xshoter-control.conf
+install -d -m 0755 /etc/nginx/xshoter/sites-enabled
+cat > /etc/nginx/conf.d/xshoter-sites.conf <<'NGINX_SITES'
+include /etc/nginx/xshoter/sites-enabled/*.conf;
+NGINX_SITES
 
 PANEL_PORT="${XSHOTER_PANEL_PORT:-8443}"
 HOSTNAME_FQDN="$(hostname -f 2>/dev/null || hostname)"
