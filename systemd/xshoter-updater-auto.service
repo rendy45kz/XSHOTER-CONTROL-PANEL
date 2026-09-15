@@ -1,0 +1,15 @@
+[Unit]
+StartLimitIntervalSec=0
+Description=Xshoter Control Automatic Stable Update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/xshoter-control/xshoter.env
+ExecStart=/opt/xshoter-updater/update.sh auto
+User=root
+Group=root
+UMask=0077
+Nice=10
+TimeoutStartSec=15min
