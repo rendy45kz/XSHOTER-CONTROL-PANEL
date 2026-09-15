@@ -14,7 +14,7 @@ fi
 case "${ID:-}" in debian|ubuntu) ;; *) echo "Supported: Debian/Ubuntu." >&2; exit 1;; esac
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y ca-certificates curl gnupg openssl nginx mariadb-server php-fpm php-cli php-mysql fail2ban iptables openssh-server golang-go
+apt-get install -y ca-certificates curl gnupg openssl nginx mariadb-server php-fpm php-cli php-mysql fail2ban python3-systemd iptables openssh-server golang-go
 
 node_ok=0
 if command -v node >/dev/null 2>&1; then
@@ -90,9 +90,17 @@ server {
 }
 NGINX
 
+mkdir -p /etc/fail2ban/jail.d
+cat > /etc/fail2ban/jail.d/xshoter-sshd.conf <<'FAIL2BAN'
+[sshd]
+enabled = true
+backend = systemd
+FAIL2BAN
+fail2ban-client -t
+
 nginx -t
 systemctl daemon-reload
-systemctl enable --now mariadb nginx xshoter-agent xshoter-control
+systemctl enable --now mariadb nginx fail2ban xshoter-agent xshoter-control
 systemctl restart xshoter-agent xshoter-control nginx
 
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
