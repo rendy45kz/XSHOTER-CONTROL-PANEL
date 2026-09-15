@@ -3,7 +3,7 @@
 Xshoter Control is a free and open-source server control panel for Linux VPS environments. It provides a web UI backed by a restricted Node.js control service and a privileged Go agent connected through a local Unix socket.
 
 **License:** GNU GPL v3.0  
-**Current release:** 1.0.0  
+**Current release:** 1.0.1
 **Default UI language:** Bahasa Indonesia, with English, Bahasa Melayu, and Tiếng Việt included.
 
 ## Features
@@ -115,11 +115,22 @@ The installer deliberately does **not** enable `xshoter-firewall.service`. On fi
 
 ## Updating
 
-Back up `/var/lib/xshoter-control`, `/etc/xshoter-control`, and your web/database data before updating. For an intentional reinstall over an existing control database, the installer requires:
+Xshoter Control 1.0.1 adds a dedicated application updater under **Updates → Xshoter Update**. It is separate from Debian/Ubuntu package updates. Three modes are available:
+
+- **Off** — no automatic release notification check from the header bell; manual checks remain available from the Updates page.
+- **Notify Only** — the default. The panel checks the stable GitHub release and shows a bell badge when a newer version exists.
+- **Automatic Stable Updates** — a systemd timer checks daily and installs newer stable releases automatically. Manual updates are queued through a root-owned systemd path trigger, so the web process never runs `systemctl` directly.
+
+Before installation, the updater validates the release in a staging directory, builds the Go agent, creates an application and control-database backup, and then restarts the control plane. If the post-update health check fails, the previous application, agent, systemd units, and control database are restored automatically.
+
+Systems installed from 1.0.0 do not yet contain the self-updater. Upgrade once to 1.0.1 using the repository installer:
 
 ```bash
+git checkout v1.0.1
 sudo XSHOTER_ALLOW_EXISTING=1 ./scripts/install.sh
 ```
+
+After 1.0.1 is installed, later stable releases can be installed from the panel. Keep independent backups of `/var/lib/xshoter-control`, `/etc/xshoter-control`, and hosted website/database data as part of normal server operations.
 
 ## Security
 
