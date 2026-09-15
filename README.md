@@ -111,7 +111,7 @@ It can be changed to a specific interface, for example `10.0.0.10:80`.
 
 ## Firewall safety
 
-The installer deliberately does **not** enable `xshoter-firewall.service`. Review `/etc/xshoter-control/firewall/iptables.rules` and confirm SSH access before enabling persistent firewall rules.
+The installer deliberately does **not** enable `xshoter-firewall.service`. On first install it snapshots the current iptables filter table into `/etc/xshoter-control/firewall/iptables.rules`; panel-managed rules are then synchronized into that snapshot for persistence. Review the resulting rules and confirm SSH/panel access before enabling `xshoter-firewall.service`.
 
 ## Updating
 
