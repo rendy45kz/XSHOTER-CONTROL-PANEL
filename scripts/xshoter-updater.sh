@@ -45,10 +45,12 @@ newer(){
   python3 - "$1" "$2" <<'PY'
 import re,sys
 def v(x):
- m=re.fullmatch(r'v?(\d+)\.(\d+)\.(\d+)',x.strip());
+ m=re.fullmatch(r'v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?',x.strip())
  if not m: raise SystemExit(2)
- return tuple(map(int,m.groups()))
-raise SystemExit(0 if v(sys.argv[1])>v(sys.argv[2]) else 1)
+ return tuple(map(int,m.groups()[:3])), bool(m.group(4))
+a,ap=v(sys.argv[1]); b,bp=v(sys.argv[2])
+newer=a>b or (a==b and not ap and bp)
+raise SystemExit(0 if newer else 1)
 PY
 }
 rollback(){

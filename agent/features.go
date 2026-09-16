@@ -548,6 +548,13 @@ func dnsRecords(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cfg := effectiveCloudflareConfig()
+	if z := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(r.URL.Query().Get("zone"))), "."); z != "" {
+		if !domainRE.MatchString(z) {
+			fail(w, 400, "invalid Cloudflare zone")
+			return
+		}
+		cfg.ZoneName = z
+	}
 	if cfg.APIToken == "" || cfg.ZoneName == "" {
 		fail(w, 503, "cloudflare DNS is not configured")
 		return

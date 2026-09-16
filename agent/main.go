@@ -142,7 +142,7 @@ func writeStateJSON(p string, v any) error {
 	return os.WriteFile(p, append(b, '\n'), 0600)
 }
 func health(w http.ResponseWriter, r *http.Request) {
-	out(w, 200, R{"ok": true, "service": "xshoter-agent", "version": "1.0.0"})
+	out(w, 200, R{"ok": true, "service": "xshoter-agent", "version": "1.0.2-beta"})
 }
 func host() string { h, _ := os.Hostname(); return h }
 func firstFloat(s string) float64 {
