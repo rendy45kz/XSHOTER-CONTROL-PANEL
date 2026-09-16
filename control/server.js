@@ -11,7 +11,7 @@ const DBFILE = process.env.XSHOTER_DB_FILE || '/var/lib/xshoter-control/control.
 const STATIC = process.env.XSHOTER_WEB_DIR || '/opt/xshoter-control/web';
 const AGENT = process.env.XSHOTER_AGENT_SOCKET || '/run/xshoter-agent.sock';
 const SETUP = process.env.XSHOTER_SETUP_TOKEN_FILE || '/var/lib/xshoter-control/setup.token';
-const VERSION = '1.0.2-beta';
+const VERSION = '1.0.2';
 const UPDATE_REPO = process.env.XSHOTER_UPDATE_REPO || 'rendy45kz/XSHOTER-CONTROL-PANEL';
 const UPDATE_API = process.env.XSHOTER_UPDATE_API || `https://api.github.com/repos/${UPDATE_REPO}/releases/latest`;
 const UPDATE_STATE = '/var/lib/xshoter-control/update';
@@ -39,9 +39,13 @@ function audit(user,action,target,req){db.prepare('INSERT INTO audit(actor,actio
 function passHash(p){const salt=crypto.randomBytes(16);const d=crypto.scryptSync(p,salt,64);return `scrypt$${salt.toString('hex')}$${d.toString('hex')}`}
 function passOK(p,h){try{const [,s,d]=h.split('$');const got=crypto.scryptSync(p,Buffer.from(s,'hex'),64);return crypto.timingSafeEqual(got,Buffer.from(d,'hex'))}catch{return false}}
 function readBody(req,max=2<<20){return new Promise((resolve,reject)=>{let a=[],n=0;req.on('data',c=>{n+=c.length;if(n>max){reject(new Error('body too large'));req.destroy();return}a.push(c)});req.on('end',()=>{try{resolve(a.length?JSON.parse(Buffer.concat(a).toString()):{})}catch(e){reject(e)}});req.on('error',reject)})}
-function needAuth(req,res){const s=session(req);if(!s){json(res,401,{ok:false,error:'authentication required'});return null}return s}
+function clientAccess(userId){const a=db.prepare('SELECT status,expires_at,provision_state FROM hosting_accounts WHERE user_id=?').get(userId);if(!a)return {ok:false,error:'hosting account not configured'};if(a.status!=='active')return {ok:false,error:'hosting account suspended'};if(Number(a.expires_at||0)>0&&Number(a.expires_at)<=now())return {ok:false,error:'hosting account expired'};return {ok:true,account:a}}
+function needAuth(req,res){const s=session(req);if(!s){json(res,401,{ok:false,error:'authentication required'});return null}if(s.role==='client'){const a=clientAccess(s.user_id);if(!a.ok){json(res,403,{ok:false,error:a.error});return null}}return s}
 function needCSRF(req,res,s){if(!s||req.headers['x-csrf-token']!==s.csrf){json(res,403,{ok:false,error:'invalid csrf token'});return false}return true}
 function ownerOnly(res,s){if(!s||s.role!=='owner'){json(res,403,{ok:false,error:'owner permission required'});return false}return true}
+const providerRoute=require('./provider.js')({db,json,readBody,needAuth,needCSRF,ownerOnly,audit,passHash,now,agent});
+function psetting(k,d=''){return db.prepare('SELECT value FROM settings WHERE key=?').get('provider_'+k)?.value??d}
+function providerPublic(){let aliases={};try{aliases=JSON.parse(psetting('domain_aliases','{}'))}catch{}return {provider_name:psetting('provider_name','Xshoter Hosting'),support_email:psetting('support_email',''),currency:psetting('currency','IDR'),primary_domain:psetting('primary_domain',''),domain_aliases:aliases}}
 function setupDone(){return Number(db.prepare('SELECT count(*) n FROM users').get().n)>0}
 const B32='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 function b32enc(buf){let bits=0,val=0,out='';for(const b of buf){val=(val<<8)|b;bits+=8;while(bits>=5){out+=B32[(val>>>(bits-5))&31];bits-=5}}if(bits)out+=B32[(val<<(5-bits))&31];return out}
@@ -62,10 +66,10 @@ function securityHeaders(res){res.setHeader('x-content-type-options','nosniff');
 function agent(method,payloadPath,data){return new Promise((resolve,reject)=>{const b=data?Buffer.from(JSON.stringify(data)):null;const q=http.request({socketPath:AGENT,path:payloadPath,method,headers:b?{'content-type':'application/json','content-length':b.length}:{}},r=>{let a=[];r.on('data',c=>a.push(c));r.on('end',()=>{const raw=Buffer.concat(a).toString();let v;try{v=JSON.parse(raw)}catch{v={ok:false,error:raw||'invalid agent response'}}resolve({status:r.statusCode||500,data:v})})});q.setTimeout(70000,()=>q.destroy(new Error('agent timeout')));q.on('error',reject);if(b)q.write(b);q.end()})}
 async function authRoutes(req,res,u){
  if(u.pathname==='/api/setup/status'&&req.method==='GET'){json(res,200,{ok:true,configured:setupDone()});return true}
- if(u.pathname==='/api/setup'&&req.method==='POST'){if(setupDone()){json(res,409,{ok:false,error:'setup already completed'});return true}let b;try{b=await readBody(req)}catch{json(res,400,{ok:false,error:'invalid json'});return true}let wanted='';try{wanted=fs.readFileSync(SETUP,'utf8').trim()}catch{}if(!wanted||b.setup_token!==wanted){json(res,403,{ok:false,error:'invalid setup token'});return true}if(!/^[a-zA-Z0-9_.-]{3,32}$/.test(b.username||'')||String(b.password||'').length<10){json(res,400,{ok:false,error:'username/password invalid'});return true}const x=db.prepare('INSERT INTO users(username,password_hash,role,created_at) VALUES(?,?,?,?)').run(b.username,passHash(b.password),'owner',now());const user=db.prepare('SELECT * FROM users WHERE id=?').get(x.lastInsertRowid);try{fs.unlinkSync(SETUP)}catch{}const csrf=setSession(res,user);audit(user.username,'setup','owner',req);json(res,201,{ok:true,user:{username:user.username,role:user.role},csrf});return true}
- if(u.pathname==='/api/login'&&req.method==='POST'){const k=ip(req);if(loginBlocked(k)){json(res,429,{ok:false,error:'too many login attempts'});return true}let b;try{b=await readBody(req)}catch{json(res,400,{ok:false,error:'invalid json'});return true}const user=db.prepare('SELECT * FROM users WHERE username=?').get(String(b.username||''));if(!user||!passOK(String(b.password||''),user.password_hash)){loginFail(k);json(res,401,{ok:false,error:'invalid credentials'});return true}if(user.totp_secret&&!b.otp){json(res,401,{ok:false,error:'otp_required',otp_required:true});return true}if(user.totp_secret&&!totpOK(user.totp_secret,b.otp)){loginFail(k);json(res,401,{ok:false,error:'invalid otp'});return true}loginClear(k);const csrf=setSession(res,user);audit(user.username,'login','panel',req);json(res,200,{ok:true,user:{username:user.username,role:user.role},csrf});return true}
+ if(u.pathname==='/api/setup'&&req.method==='POST'){if(setupDone()){json(res,409,{ok:false,error:'setup already completed'});return true}let b;try{b=await readBody(req)}catch{json(res,400,{ok:false,error:'invalid json'});return true}let wanted='';try{wanted=fs.readFileSync(SETUP,'utf8').trim()}catch{}if(!wanted||b.setup_token!==wanted){json(res,403,{ok:false,error:'invalid setup token'});return true}if(!/^[a-zA-Z0-9_.-]{3,32}$/.test(b.username||'')||String(b.password||'').length<10){json(res,400,{ok:false,error:'username/password invalid'});return true}const x=db.prepare('INSERT INTO users(username,password_hash,role,created_at) VALUES(?,?,?,?)').run(b.username,passHash(b.password),'owner',now());const user=db.prepare('SELECT * FROM users WHERE id=?').get(x.lastInsertRowid);try{fs.unlinkSync(SETUP)}catch{}const csrf=setSession(res,user);audit(user.username,'setup','owner',req);json(res,201,{ok:true,user:{username:user.username,role:user.role},provider:providerPublic(),csrf});return true}
+ if(u.pathname==='/api/login'&&req.method==='POST'){const k=ip(req);if(loginBlocked(k)){json(res,429,{ok:false,error:'too many login attempts'});return true}let b;try{b=await readBody(req)}catch{json(res,400,{ok:false,error:'invalid json'});return true}const user=db.prepare('SELECT * FROM users WHERE username=?').get(String(b.username||''));if(!user||!passOK(String(b.password||''),user.password_hash)){loginFail(k);json(res,401,{ok:false,error:'invalid credentials'});return true}if(user.role==='client'){const ca=clientAccess(user.id);if(!ca.ok){json(res,403,{ok:false,error:ca.error});return true}}if(user.totp_secret&&!b.otp){json(res,401,{ok:false,error:'otp_required',otp_required:true});return true}if(user.totp_secret&&!totpOK(user.totp_secret,b.otp)){loginFail(k);json(res,401,{ok:false,error:'invalid otp'});return true}loginClear(k);const csrf=setSession(res,user);audit(user.username,'login','panel',req);json(res,200,{ok:true,user:{username:user.username,role:user.role},provider:providerPublic(),csrf});return true}
  if(u.pathname==='/api/logout'&&req.method==='POST'){const s=needAuth(req,res);if(!s)return true;if(!needCSRF(req,res,s))return true;destroySession(req,res);audit(s.username,'logout','panel',req);json(res,200,{ok:true});return true}
- if(u.pathname==='/api/me'&&req.method==='GET'){const s=needAuth(req,res);if(!s)return true;json(res,200,{ok:true,user:{username:s.username,role:s.role,twofa:!!s.totp_secret},csrf:s.csrf,version:VERSION});return true}
+ if(u.pathname==='/api/me'&&req.method==='GET'){const s=needAuth(req,res);if(!s)return true;json(res,200,{ok:true,user:{username:s.username,role:s.role,twofa:!!s.totp_secret},provider:providerPublic(),csrf:s.csrf,version:VERSION});return true}
  if(u.pathname==='/api/update-info'&&req.method==='GET'){const s=needAuth(req,res);if(!s)return true;try{json(res,200,await getUpdateInfo(u.searchParams.get('refresh')==='1'))}catch(e){json(res,200,{ok:false,current:VERSION,latest:'',available:false,channel:'stable',error:e.message})}return true}
  if(u.pathname==='/api/update-status'&&req.method==='GET'){const s=needAuth(req,res);if(!s)return true;json(res,200,readUpdateStatus());return true}
  if(u.pathname==='/api/update-settings'&&req.method==='POST'){const s=needAuth(req,res);if(!s)return true;if(s.role==='viewer'){json(res,403,{ok:false,error:'read only account'});return true}if(!needCSRF(req,res,s))return true;const b=await readBody(req).catch(()=>null);if(!b||!['off','notify','auto'].includes(String(b.mode||''))){json(res,400,{ok:false,error:'invalid update mode'});return true}writeAtomic(UPDATE_MODE_FILE,String(b.mode)+'\n');audit(s.username,'update_mode',String(b.mode),req);json(res,200,{ok:true,mode:String(b.mode)});return true}
@@ -120,7 +124,7 @@ async function adminRoutes(req,res,u){
   }
   json(res,405,{ok:false,error:'method not allowed'});return true
  }
- if(u.pathname==='/api/audit'&&req.method==='GET'){const s=needAuth(req,res);if(!s)return true;json(res,200,{ok:true,items:db.prepare('SELECT actor,action,target,ip,created_at FROM audit ORDER BY id DESC LIMIT 300').all()});return true}
+ if(u.pathname==='/api/audit'&&req.method==='GET'){const s=needAuth(req,res);if(!s)return true;if(s.role==='client'){json(res,403,{ok:false,error:'client access denied'});return true}json(res,200,{ok:true,items:db.prepare('SELECT actor,action,target,ip,created_at FROM audit ORDER BY id DESC LIMIT 300').all()});return true}
  return false
 }
 const proxyMap={
@@ -129,7 +133,7 @@ const proxyMap={
  '/api/files':'/v1/files','/api/sshkeys':'/v1/sshkeys','/api/ssl':'/v1/ssl',
  '/api/system':'/v1/system','/api/processes':'/v1/processes','/api/packages':'/v1/packages','/api/ssl-status':'/v1/ssl-status',
  '/api/web-logs':'/v1/web-logs','/api/php-settings':'/v1/php-settings','/api/file-actions':'/v1/file-actions',
- '/api/backup-actions':'/v1/backup-actions','/api/dns':'/v1/dns','/api/security-overview':'/v1/security','/api/server-users':'/v1/server-users'
+ '/api/backup-actions':'/v1/backup-actions','/api/dns':'/v1/dns','/api/security-overview':'/v1/security','/api/server-users':'/v1/server-users','/api/runtimes':'/v1/runtimes'
 };
 async function cloudflareRoute(req,res,u){
  const routes={
@@ -137,7 +141,7 @@ async function cloudflareRoute(req,res,u){
   '/api/cloudflare-zone-settings':'/v1/cloudflare-zone-settings','/api/cloudflare-cache':'/v1/cloudflare-cache',
   '/api/cloudflare-tunnels':'/v1/cloudflare-tunnels','/api/cloudflare-tunnel-routes':'/v1/cloudflare-tunnel-routes'
  };
- const target=routes[u.pathname];if(!target)return false;const s=needAuth(req,res);if(!s)return true;
+ const target=routes[u.pathname];if(!target)return false;const s=needAuth(req,res);if(!s)return true;if(s.role==='client'){json(res,403,{ok:false,error:'client access denied'});return true}
  const mut=!['GET','HEAD'].includes(req.method);if(mut){if(!ownerOnly(res,s))return true;if(!needCSRF(req,res,s))return true}
  let b=null;if(mut){b=await readBody(req).catch(()=>null);if(b===null){json(res,400,{ok:false,error:'invalid json'});return true}}
  let q='';for(const [k,v] of u.searchParams)q+=(q?'&':'?')+encodeURIComponent(k)+'='+encodeURIComponent(v);
@@ -145,13 +149,21 @@ async function cloudflareRoute(req,res,u){
  if(mut&&a.data.ok)audit(s.username,'cloudflare_'+req.method.toLowerCase(),u.pathname.replace('/api/',''),req);
  json(res,a.status,a.data);return true
 }
+async function hostingUploadRoute(req,res,u){
+ if(u.pathname!=='/api/hosting/upload')return false;const s=needAuth(req,res);if(!s)return true;if(s.role!=='client'){json(res,403,{ok:false,error:'hosting client account required'});return true}if(req.method!=='POST'){json(res,405,{ok:false,error:'method not allowed'});return true}if(!needCSRF(req,res,s))return true;
+ const h=db.prepare(`SELECT a.id,a.linux_user,p.disk_mb FROM hosting_accounts a JOIN hosting_plans p ON p.id=a.plan_id WHERE a.user_id=?`).get(s.user_id),raw=u.searchParams.get('path')||'';if(!h){json(res,404,{ok:false,error:'hosting account not configured'});return true}
+ const base=path.resolve('/home',h.linux_user,'web'),target=path.resolve(raw);if(target!==base&&!target.startsWith(base+path.sep)){json(res,403,{ok:false,error:'file path outside your websites'});return true}const rel=path.relative(base,target).split(path.sep),host=rel[0];if(rel.length<3||rel[1]!=='public_html'||!db.prepare("SELECT id FROM hosting_resources WHERE account_id=? AND name=? AND type IN ('domain','subdomain')").get(h.id,host)){json(res,403,{ok:false,error:'file path outside your websites'});return true}
+ const size=Number(req.headers['content-length']||0),uploadMax=Math.max(1,Math.min(128,Number(psetting('upload_max_mb','128'))||128))*1048576;if(!Number.isFinite(size)||size<0){json(res,411,{ok:false,error:'valid content-length required'});return true}if(size>uploadMax){json(res,413,{ok:false,error:'upload exceeds provider limit',limit_bytes:uploadMax});return true}const ur=await agent('GET','/v1/hosting-usage?user='+encodeURIComponent(h.linux_user),null).catch(()=>null);if(!ur?.data?.ok){json(res,502,{ok:false,error:'cannot read disk usage'});return true}let dbBytes=0;const names=new Set(db.prepare("SELECT name FROM hosting_resources WHERE account_id=? AND type='database'").all(h.id).map(x=>x.name));if(names.size){const dr=await agent('GET','/v1/databases',null).catch(()=>null);if(dr?.data?.ok)for(const x of dr.data.items||[])if(names.has(x.name))dbBytes+=Number(x.size||0)}let old=0;try{old=fs.statSync(target).size}catch{}const total=Number(ur.data.used_bytes||0)+dbBytes-old+size,limit=Number(h.disk_mb||0)*1048576;if(limit>0&&total>limit){json(res,409,{ok:false,error:'disk quota exceeded'});return true}
+ await new Promise(resolve=>{const headers={'content-type':'application/octet-stream','content-length':String(size)};const q=http.request({socketPath:AGENT,path:'/v1/file-upload?path='+encodeURIComponent(target),method:'POST',headers},r=>{let a=[];r.on('data',c=>a.push(c));r.on('end',()=>{const raw=Buffer.concat(a).toString();let v;try{v=JSON.parse(raw)}catch{v={ok:false,error:raw||'invalid agent response'}}if(v.ok)audit(s.username,'hosting_file_upload',target,req);json(res,r.statusCode||500,v);resolve()})});q.on('error',e=>{json(res,502,{ok:false,error:e.message});resolve()});req.pipe(q)});return true
+}
 async function uploadRoute(req,res,u){
  if(u.pathname!=='/api/upload')return false;
- const s=needAuth(req,res);if(!s)return true;
+ const s=needAuth(req,res);if(!s)return true;if(s.role==='client'){json(res,403,{ok:false,error:'client access denied'});return true}
  if(req.method!=='POST'){json(res,405,{ok:false,error:'method not allowed'});return true}
  if(s.role==='viewer'){json(res,403,{ok:false,error:'read only account'});return true}
  if(!needCSRF(req,res,s))return true;
  const p=u.searchParams.get('path')||'';if(!p){json(res,400,{ok:false,error:'path required'});return true}
+ const uploadMax=Math.max(1,Math.min(128,Number(psetting('upload_max_mb','128'))||128))*1048576,uploadSize=req.headers['content-length']===undefined?null:Number(req.headers['content-length']);if(uploadSize!==null&&(!Number.isFinite(uploadSize)||uploadSize<0)){json(res,411,{ok:false,error:'invalid content-length'});return true}if(uploadSize!==null&&uploadSize>uploadMax){json(res,413,{ok:false,error:'upload exceeds provider limit',limit_bytes:uploadMax});return true}
  await new Promise(resolve=>{const headers={'content-type':'application/octet-stream'};if(req.headers['content-length'])headers['content-length']=req.headers['content-length'];const q=http.request({socketPath:AGENT,path:'/v1/file-upload?path='+encodeURIComponent(p),method:'POST',headers},r=>{let a=[];r.on('data',c=>a.push(c));r.on('end',()=>{const raw=Buffer.concat(a).toString();let v;try{v=JSON.parse(raw)}catch{v={ok:false,error:raw||'invalid agent response'}}if(v.ok)audit(s.username,'upload_file',p,req);json(res,r.statusCode||500,v);resolve()})});q.on('error',e=>{json(res,502,{ok:false,error:e.message});resolve()});req.pipe(q)});
  return true
 }
@@ -162,24 +174,28 @@ async function proxyRoute(req,res,u){
   if(!needCSRF(req,res,s))return true;
   const b=await readBody(req).catch(()=>null);
   if(!b||!/^[A-Za-z0-9_]{1,64}$/.test(String(b.name||''))){json(res,400,{ok:false,error:'invalid database'});return true}
+  if(s.role==='client'){const h=db.prepare('SELECT id FROM hosting_accounts WHERE user_id=?').get(s.user_id);const own=h&&db.prepare("SELECT id FROM hosting_resources WHERE account_id=? AND type='database' AND name=?").get(h.id,String(b.name));if(!own){json(res,403,{ok:false,error:'database access denied'});return true}}
   const a=await agent('POST','/v1/pma-token',{name:String(b.name)}).catch(e=>({status:502,data:{ok:false,error:e.message}}));
   if(!a.data.ok){json(res,a.status,a.data);return true}
   audit(s.username,'phpmyadmin_sso',String(b.name),req);
   json(res,200,{ok:true,url:'/phpmyadmin/xshoter-sso.php?token='+encodeURIComponent(a.data.token)});return true
  }
- const target=proxyMap[u.pathname];if(!target)return false;const s=needAuth(req,res);if(!s)return true
+ const target=proxyMap[u.pathname];if(!target)return false;const s=needAuth(req,res);if(!s)return true;if(s.role==='client'){json(res,403,{ok:false,error:'client access denied'});return true}
  const mut=!['GET','HEAD'].includes(req.method);if(mut){if(s.role==='viewer'){json(res,403,{ok:false,error:'read only account'});return true}if(!needCSRF(req,res,s))return true}
  let b=null;if(mut){b=await readBody(req).catch(()=>null);if(b===null){json(res,400,{ok:false,error:'invalid json'});return true}}
+ if(u.pathname==='/api/websites'&&req.method==='POST'&&b){b.php=String(b.php||b.PHP||psetting('default_php',''));delete b.PHP;b.web_listen=psetting('web_listen',process.env.XSHOTER_WEB_LISTEN||'80');b.tunnel_origin=psetting('tunnel_origin',process.env.XSHOTER_TUNNEL_ORIGIN||'http://127.0.0.1:80');if(b.cloudflare===undefined)b.cloudflare=psetting('auto_cloudflare','1')==='1'}
  let q='';for(const [k,v] of u.searchParams)q+=(q?'&':'?')+encodeURIComponent(k)+'='+encodeURIComponent(v);const a=await agent(req.method,target+q,b).catch(e=>({status:502,data:{ok:false,error:e.message}}));if(mut&&a.data.ok)audit(s.username,req.method.toLowerCase()+'_'+u.pathname.split('/').pop(),JSON.stringify(b||{}).slice(0,200),req);json(res,a.status,a.data);return true
 }
-function serveStatic(req,res,u){let p=u.pathname==='/'?'/index.html':u.pathname;if(!['/index.html','/app.css','/app.js','/features.js','/i18n.js','/logo.svg','/flags/id.png','/flags/us.png','/flags/ms.png','/flags/vi.png','/update-v101.js','/cloudflare-v102.js'].includes(p)){p='/index.html'}const f=path.join(STATIC,p);if(!fs.existsSync(f)){res.writeHead(404);res.end('not found');return}const ext=path.extname(f);const ct={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'application/javascript; charset=utf-8','.svg':'image/svg+xml','.png':'image/png'}[ext]||'application/octet-stream';const b=fs.readFileSync(f);res.writeHead(200,{'content-type':ct,'content-length':b.length,'cache-control':ext==='.html'?'no-store':'public,max-age=3600'});res.end(b)}
+function serveStatic(req,res,u){let p=u.pathname==='/'?'/index.html':u.pathname;if(!['/index.html','/app.css','/app.js','/features.js','/i18n.js','/logo.svg','/flags/id.png','/flags/us.png','/flags/ms.png','/flags/vi.png','/update-v101.js','/cloudflare-v102.js','/provider-v102.js'].includes(p)){p='/index.html'}const f=path.join(STATIC,p);if(!fs.existsSync(f)){res.writeHead(404);res.end('not found');return}const ext=path.extname(f);const ct={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'application/javascript; charset=utf-8','.svg':'image/svg+xml','.png':'image/png'}[ext]||'application/octet-stream';const b=fs.readFileSync(f);res.writeHead(200,{'content-type':ct,'content-length':b.length,'cache-control':ext==='.html'?'no-store':'public,max-age=3600'});res.end(b)}
 const server=http.createServer(async(req,res)=>{
  securityHeaders(res);const u=new URL(req.url,'http://local');
  try{
   if(await authRoutes(req,res,u))return;
   if(await accountRoutes(req,res,u))return;
   if(await adminRoutes(req,res,u))return;
+  if(await providerRoute(req,res,u))return;
   if(await cloudflareRoute(req,res,u))return;
+  if(await hostingUploadRoute(req,res,u))return;
   if(await uploadRoute(req,res,u))return;
   if(await proxyRoute(req,res,u))return;
   if(u.pathname.startsWith('/api/')){json(res,404,{ok:false,error:'api not found'});return}

@@ -33,6 +33,7 @@ node -e 'if(Number(process.versions.node.split(".")[0])<22)process.exit(1)'
 install -d -m 0755 /opt/xshoter-control /opt/xshoter-agent /opt/xshoter-updater
 rm -rf /opt/xshoter-control/web
 cp -a "$ROOT/control/server.js" /opt/xshoter-control/server.js
+cp -a "$ROOT/control/provider.js" /opt/xshoter-control/provider.js
 cp -a "$ROOT/control/web" /opt/xshoter-control/web
 chmod -R a+rX /opt/xshoter-control
 

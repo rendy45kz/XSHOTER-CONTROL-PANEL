@@ -132,3 +132,35 @@ html,body{overflow-x:hidden}.workspace,#content,.card{min-width:0;max-width:100%
 
 /* DNS tunnel content helper */
 .dns-field{display:block}.dns-field>label{margin-bottom:8px}.dns-tunnel-choice{display:grid;gap:9px;padding:11px 12px;border:1px solid #25344a;border-radius:11px;background:#0d1420}.dns-tunnel-check{display:flex;align-items:center;gap:9px;margin:0;color:#c6d1df;font-size:.8rem;font-weight:650}.dns-tunnel-check input[type=checkbox]{width:18px;height:18px;min-width:18px;margin:0;padding:0;accent-color:var(--blue2)}.dns-tunnel-choice select{margin:0}
+
+
+/* Beta 1.0.2 mobile viewport hardening */
+@media(max-width:430px){
+  .gate{padding:max(14px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(14px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))}
+  .auth-card{width:100%;padding:20px 16px;border-radius:18px}
+  .topbar{height:64px;padding-left:max(10px,env(safe-area-inset-left));padding-right:max(10px,env(safe-area-inset-right));gap:8px}
+  .menu,.bell-button,.lang-button{flex:0 0 auto}
+  .top-title{flex:1 1 auto;min-width:0}.top-title h1{max-width:none;font-size:.98rem}
+  .eyebrow{font-size:.56rem;letter-spacing:.11em;white-space:nowrap}
+  #content{padding:10px max(10px,env(safe-area-inset-right)) max(18px,env(safe-area-inset-bottom)) max(10px,env(safe-area-inset-left))}
+  .card{padding:12px;border-radius:13px}.card-head{align-items:flex-start;gap:8px;margin-bottom:12px}.card-head h2{min-width:0;overflow-wrap:anywhere}
+  .metrics{gap:8px}.metric{min-width:0;padding:11px}.metric .k{overflow-wrap:anywhere}.metric .v{overflow-wrap:anywhere;word-break:break-word}
+  .form-grid{gap:8px}.form-grid label{min-width:0;margin:8px 0}
+  input,select,textarea{min-width:0;padding:10px 11px}
+  .toolbar,.toolbar .right{min-width:0}.toolbar select,.toolbar input{max-width:100%}
+  .row-item{min-width:0;padding:11px;gap:9px}.row-main b{white-space:normal;overflow-wrap:anywhere;word-break:break-word}
+  .file{min-width:0}.file-name{min-width:0;overflow-wrap:anywhere;word-break:break-word}
+  .table tr{min-width:0;padding:11px;gap:8px}.table td{min-width:0;gap:8px}.table td:before{flex:0 0 74px;min-width:74px;white-space:normal;overflow-wrap:anywhere}.table td>span,.table td>b,.table td>code{max-width:calc(100% - 82px)}
+  .table td.actions{display:flex;justify-content:stretch;gap:7px}.table td.actions .btn,.actions>.btn,.actions>a.btn{flex:1 1 130px;min-width:0;white-space:normal;text-align:center}
+  .notice,.secret,.code,.logbox{max-width:100%;overflow-wrap:anywhere;word-break:break-word}
+  .lang-menu{left:10px;right:10px;top:58px;width:auto;max-height:calc(100dvh - 72px);overflow:auto}
+  .update-popover{left:10px;right:10px;top:58px;width:auto;max-height:calc(100dvh - 72px);overflow:auto}
+  .toast{left:10px;right:10px;bottom:max(10px,env(safe-area-inset-bottom))}
+}
+@media(max-width:370px){
+  .metrics{grid-template-columns:1fr}.metric .k{font-size:.64rem}.metric .v{font-size:1.05rem}
+  .topbar{gap:6px}.menu,.bell-button{width:34px;height:34px}.lang-button{height:34px;padding:4px 6px}.lang-flag{width:22px;height:22px;flex-basis:22px}
+  .eyebrow{display:none}.top-title h1{font-size:.93rem}.lang-code,.lang-chevron{display:none}
+  .table td{display:grid;grid-template-columns:72px minmax(0,1fr);align-items:start}.table td:before{min-width:0;width:auto}.table td>span,.table td>b,.table td>code{max-width:none;text-align:left;justify-self:end;min-width:0}
+  .table td.actions{display:grid;grid-template-columns:1fr}.table td.actions .btn,.actions>.btn,.actions>a.btn{width:100%;flex-basis:auto}
+}

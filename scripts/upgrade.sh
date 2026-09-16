@@ -9,22 +9,27 @@ BUILD="$(mktemp -d /tmp/xshoter-upgrade.XXXXXX)"
 trap 'rm -rf "$BUILD"' EXIT
 
 node --check "$ROOT/control/server.js"
+node --check "$ROOT/control/provider.js"
 node --check "$ROOT/control/web/app.js"
 node --check "$ROOT/control/web/features.js"
 node --check "$ROOT/control/web/i18n.js"
 node --check "$ROOT/control/web/update-v101.js"
+node --check "$ROOT/control/web/provider-v102.js"
+node --check "$ROOT/control/web/cloudflare-v102.js"
 bash -n "$ROOT/scripts/upgrade.sh" "$ROOT/scripts/xshoter-updater.sh"
 ( cd "$ROOT/agent" && go build -trimpath -ldflags="-s -w" -o "$BUILD/xshoter-agent" . )
 
 install -d -m 0755 /opt/xshoter-control /opt/xshoter-agent /opt/xshoter-updater
 cp -a "$ROOT/control/web" "$BUILD/web"
 install -m 0644 "$ROOT/control/server.js" "$BUILD/server.js"
+install -m 0644 "$ROOT/control/provider.js" "$BUILD/provider.js"
 install -m 0755 "$ROOT/scripts/xshoter-updater.sh" "$BUILD/update.sh"
 systemctl stop xshoter-control.service xshoter-agent.service || true
 
 rm -rf /opt/xshoter-control/web.new
 mv "$BUILD/web" /opt/xshoter-control/web.new
 install -m 0644 "$BUILD/server.js" /opt/xshoter-control/server.js.new
+install -m 0644 "$BUILD/provider.js" /opt/xshoter-control/provider.js.new
 install -m 0755 "$BUILD/xshoter-agent" /opt/xshoter-agent/xshoter-agent.new
 install -m 0755 "$BUILD/update.sh" /opt/xshoter-updater/update.sh.new
 
@@ -32,6 +37,7 @@ rm -rf /opt/xshoter-control/web.old
 [ ! -d /opt/xshoter-control/web ] || mv /opt/xshoter-control/web /opt/xshoter-control/web.old
 mv /opt/xshoter-control/web.new /opt/xshoter-control/web
 mv /opt/xshoter-control/server.js.new /opt/xshoter-control/server.js
+mv /opt/xshoter-control/provider.js.new /opt/xshoter-control/provider.js
 mv /opt/xshoter-agent/xshoter-agent.new /opt/xshoter-agent/xshoter-agent
 mv /opt/xshoter-updater/update.sh.new /opt/xshoter-updater/update.sh
 chmod -R a+rX /opt/xshoter-control

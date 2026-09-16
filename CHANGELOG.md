@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.2 - 2026-09-17
+
+- Added commercial Hosting Provider mode with configurable plans and client lifecycle management.
+- Added isolated Linux hosting accounts, SFTP chroot, website/database/file/backup/cron controls, and application installers.
+- Added monthly bandwidth metering and automatic HTTP 509 enforcement when a plan limit is exceeded.
+- Added per-plan CPU, RAM, and process limits using systemd/cgroup v2, including PHP-FPM, cron, and Node/Python app integration.
+- Added automatic reconciliation so existing hosted application services move into the correct client resource slice.
+- Added configurable File Manager upload limits and package-level resource enforcement.
+- Expanded Cloudflare account, zone, DNS, and Tunnel automation without hardcoded production domains.
+- Added hosting account expiry, suspend/reactivate, plan upgrade/downgrade, and session revocation workflows.
+- Improved mobile layouts and Indonesian, English, Malay, and Vietnamese coverage for hosting/provider workflows.
+- Extended release validation to include Provider and Cloudflare modules.
+
 ## 1.0.1 - 2026-09-15
 
 - Added Xshoter release notifications with a bell beside the language selector.

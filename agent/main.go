@@ -14,6 +14,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -26,15 +27,50 @@ var state = envOr("XSHOTER_STATE_DIR", "/var/lib/xshoter-control")
 var domainRE = regexp.MustCompile(`^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
 var userRE = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,30}$`)
 var nameRE = regexp.MustCompile(`^[A-Za-z0-9_]{1,64}$`)
-var phpRE = regexp.MustCompile(`^8\.(2|3)$`)
+var phpRE = regexp.MustCompile(`^[0-9]+\.[0-9]+$`)
 var cronRE = regexp.MustCompile(`^[0-9*/?,\-]+\s+[0-9*/?,\-]+\s+[0-9*/?,\-]+\s+[0-9*/?,\-]+\s+[0-9*/?,\-]+$`)
-var serviceList = []string{"nginx", "mariadb", "cloudflared", "ssh", "fail2ban", "php8.2-fpm", "php8.3-fpm", "xshoter-control", "xshoter-agent", "xshoter-firewall"}
+var serviceList = []string{"nginx", "mariadb", "cloudflared", "ssh", "fail2ban", "xshoter-control", "xshoter-agent", "xshoter-firewall"}
 var servicesOK = map[string]bool{
 	"nginx": true, "mariadb": true, "cloudflared": true, "ssh": true,
-	"fail2ban": true, "php8.2-fpm": true, "php8.3-fpm": true,
-	"xshoter-control": true, "xshoter-agent": true, "xshoter-firewall": true,
+	"fail2ban": true, "xshoter-control": true, "xshoter-agent": true, "xshoter-firewall": true,
 }
-var servicesReload = map[string]bool{"nginx": true, "mariadb": true, "ssh": true, "fail2ban": true, "php8.2-fpm": true, "php8.3-fpm": true}
+var servicesReload = map[string]bool{"nginx": true, "mariadb": true, "ssh": true, "fail2ban": true}
+
+func discoveredServices() []string {
+	a := append([]string{}, serviceList...)
+	seen := map[string]bool{}
+	for _, n := range a {
+		seen[n] = true
+	}
+	rows, _ := filepath.Glob("/etc/php/*/fpm")
+	for _, x := range rows {
+		v := filepath.Base(filepath.Dir(x))
+		if !phpRE.MatchString(v) {
+			continue
+		}
+		n := "php" + v + "-fpm"
+		if !seen[n] {
+			seen[n] = true
+			a = append(a, n)
+		}
+	}
+	sort.Strings(a)
+	return a
+}
+func serviceAllowed(n string) bool {
+	if servicesOK[n] {
+		return true
+	}
+	m := regexp.MustCompile(`^php([0-9]+\.[0-9]+)-fpm$`).FindStringSubmatch(n)
+	if len(m) != 2 {
+		return false
+	}
+	_, e := os.Stat(filepath.Join("/etc/php", m[1], "fpm"))
+	return e == nil
+}
+func serviceCanReload(n string) bool {
+	return servicesReload[n] || (strings.HasPrefix(n, "php") && strings.HasSuffix(n, "-fpm") && serviceAllowed(n))
+}
 
 type R map[string]any
 
@@ -80,6 +116,17 @@ func main() {
 	m.HandleFunc("/v1/cloudflare-tunnel-routes", cloudflareTunnelRoutesHandler)
 	m.HandleFunc("/v1/security", only("GET", securityOverview))
 	m.HandleFunc("/v1/server-users", only("GET", serverUsers))
+	m.HandleFunc("/v1/hosting-provision", only("POST", hostingProvision))
+	m.HandleFunc("/v1/hosting-usage", only("GET", hostingUsage))
+	m.HandleFunc("/v1/hosting-sftp", hostingSFTP)
+	m.HandleFunc("/v1/hosting-backups", hostingBackups)
+	m.HandleFunc("/v1/hosting-cron", hostingCron)
+	m.HandleFunc("/v1/hosting-installer", hostingInstaller)
+	m.HandleFunc("/v1/hosting-control", only("POST", hostingControl))
+	m.HandleFunc("/v1/hosting-quota-status", only("GET", hostingQuotaStatus))
+	m.HandleFunc("/v1/hosting-bandwidth", hostingBandwidth)
+	m.HandleFunc("/v1/hosting-resources", hostingResources)
+	m.HandleFunc("/v1/runtimes", only("GET", runtimeInventory))
 	s := &http.Server{Handler: m, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 90 * time.Second}
 	must(s.Serve(ln))
 }
@@ -142,7 +189,7 @@ func writeStateJSON(p string, v any) error {
 	return os.WriteFile(p, append(b, '\n'), 0600)
 }
 func health(w http.ResponseWriter, r *http.Request) {
-	out(w, 200, R{"ok": true, "service": "xshoter-agent", "version": "1.0.2-beta"})
+	out(w, 200, R{"ok": true, "service": "xshoter-agent", "version": "1.0.2"})
 }
 func host() string { h, _ := os.Hostname(); return h }
 func firstFloat(s string) float64 {
@@ -223,10 +270,10 @@ func stats(w http.ResponseWriter, r *http.Request) {
 func services(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
 		a := []R{}
-		for _, n := range serviceList {
+		for _, n := range discoveredServices() {
 			s, _ := cmd("systemctl", "is-active", n)
 			en, _ := cmd("systemctl", "is-enabled", n)
-			a = append(a, R{"name": n, "active": strings.TrimSpace(s) == "active", "enabled": strings.TrimSpace(en) == "enabled", "can_reload": servicesReload[n]})
+			a = append(a, R{"name": n, "active": strings.TrimSpace(s) == "active", "enabled": strings.TrimSpace(en) == "enabled", "can_reload": serviceCanReload(n)})
 		}
 		out(w, 200, R{"ok": true, "items": a})
 		return
@@ -243,7 +290,7 @@ func services(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "invalid json")
 		return
 	}
-	if !servicesOK[v.Name] || !map[string]bool{"start": true, "stop": true, "restart": true, "reload": true}[v.Action] || (v.Action == "reload" && !servicesReload[v.Name]) {
+	if !serviceAllowed(v.Name) || !map[string]bool{"start": true, "stop": true, "restart": true, "reload": true}[v.Action] || (v.Action == "reload" && !serviceCanReload(v.Name)) {
 		fail(w, 400, "service/action not allowed")
 		return
 	}
@@ -292,19 +339,30 @@ func listWebsites(w http.ResponseWriter) {
 }
 func createWebsite(w http.ResponseWriter, r *http.Request) {
 	var v struct {
-		Owner      string `json:"owner"`
-		Domain     string `json:"domain"`
-		PHP        string `json:"php"`
-		Cloudflare bool   `json:"cloudflare"`
-		TunnelID   string `json:"tunnel_id"`
+		Owner        string `json:"owner"`
+		Domain       string `json:"domain"`
+		PHP          string `json:"php"`
+		Cloudflare   bool   `json:"cloudflare"`
+		TunnelID     string `json:"tunnel_id"`
+		WebListen    string `json:"web_listen"`
+		TunnelOrigin string `json:"tunnel_origin"`
 	}
 	if body(r, &v) != nil {
 		fail(w, 400, "invalid json")
 		return
 	}
 	v.Domain = strings.ToLower(v.Domain)
-	if !userRE.MatchString(v.Owner) || !domainRE.MatchString(v.Domain) || !phpRE.MatchString(v.PHP) {
-		fail(w, 400, "invalid owner/domain/php")
+	v.WebListen = strings.TrimSpace(v.WebListen)
+	if v.WebListen == "" {
+		v.WebListen = envOr("XSHOTER_WEB_LISTEN", "80")
+	}
+	v.TunnelOrigin = strings.TrimSpace(v.TunnelOrigin)
+	if v.TunnelOrigin == "" {
+		v.TunnelOrigin = envOr("XSHOTER_TUNNEL_ORIGIN", "http://127.0.0.1:80")
+	}
+	listenOK := regexp.MustCompile(`^(?:[0-9]{1,3}(?:\.[0-9]{1,3}){3}:)?[0-9]{1,5}$`).MatchString(v.WebListen)
+	if !userRE.MatchString(v.Owner) || !domainRE.MatchString(v.Domain) || !phpRE.MatchString(v.PHP) || !exists("/etc/php/"+v.PHP+"/fpm") || !listenOK || !cfServiceOK(v.TunnelOrigin) {
+		fail(w, 400, "invalid owner/domain/php/listener/origin")
 		return
 	}
 	if _, e := user.Lookup(v.Owner); e != nil {
@@ -330,14 +388,15 @@ func createWebsite(w http.ResponseWriter, r *http.Request) {
 	_ = os.Chmod(logs, 0750)
 	safe := strings.ReplaceAll(v.Domain, ".", "_")
 	socket := fmt.Sprintf("/run/php/php%s-fpm-xshoter-%s.sock", v.PHP, safe)
-	pool := fmt.Sprintf("[xshoter-%s]\nuser=%s\ngroup=%s\nlisten=%s\nlisten.owner=www-data\nlisten.group=www-data\nlisten.mode=0660\npm=ondemand\npm.max_children=8\npm.process_idle_timeout=15s\npm.max_requests=500\nphp_admin_value[open_basedir]=%s:/tmp\n", safe, v.Owner, v.Owner, socket, base)
+	children, memPer := resourcePHPValues(v.Owner)
+	pool := fmt.Sprintf("[xshoter-%s]\nuser=%s\ngroup=%s\nlisten=%s\nlisten.owner=www-data\nlisten.group=www-data\nlisten.mode=0660\npm=ondemand\npm.max_children=%d\npm.process_idle_timeout=15s\npm.max_requests=500\nphp_admin_value[memory_limit]=%dM\nphp_admin_value[open_basedir]=%s:/tmp\n", safe, v.Owner, v.Owner, socket, children, memPer, base)
 	pp := fmt.Sprintf("/etc/php/%s/fpm/pool.d/xshoter-%s.conf", v.PHP, safe)
 	if e := os.WriteFile(pp, []byte(pool), 0644); e != nil {
 		fail(w, 500, e.Error())
 		return
 	}
 	np := "/etc/nginx/xshoter/sites-enabled/" + v.Domain + ".conf"
-	if e := os.WriteFile(np, []byte(nginxSite(v.Domain, root, logs, socket)), 0644); e != nil {
+	if e := os.WriteFile(np, []byte(nginxSite(v.Domain, root, logs, socket, v.WebListen, v.Owner)), 0644); e != nil {
 		fail(w, 500, e.Error())
 		return
 	}
@@ -370,12 +429,7 @@ func createWebsite(w http.ResponseWriter, r *http.Request) {
 			cfg, zoneID, zoneName, zoneStatus, ns, e = cfEnsureZoneForHostname(cfg, v.Domain)
 			_ = zoneID
 			if e == nil {
-				listen := envOr("XSHOTER_WEB_LISTEN", "80")
-				service := "http://127.0.0.1:" + listen
-				if strings.Contains(listen, ":") {
-					service = "http://" + listen
-				}
-				e = cfUpsertTunnelRoute(cfg, tunnelID, v.Domain, "", service, false)
+				e = cfUpsertTunnelRoute(cfg, tunnelID, v.Domain, "", v.TunnelOrigin, false)
 			}
 			if e == nil {
 				meta["tls_mode"] = "cloudflare"
@@ -391,8 +445,13 @@ func createWebsite(w http.ResponseWriter, r *http.Request) {
 	}
 	out(w, 201, R{"ok": true, "domain": v.Domain, "root": root, "cloudflare": cf})
 }
-func nginxSite(d, root, logs, socket string) string {
-	return fmt.Sprintf("server {\n listen %s;\n server_name %s;\n root %s;\n index index.php index.html;\n access_log %s/access.log;\n error_log %s/error.log;\n client_max_body_size 128m;\n location / { try_files $uri $uri/ /index.php?$query_string; }\n location ~ \\.php$ { try_files $uri =404; include fastcgi_params; fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name; fastcgi_pass unix:%s; }\n location ~ /\\. { deny all; }\n}\n", envOr("XSHOTER_WEB_LISTEN", "80"), d, root, logs, logs, socket)
+func nginxSite(d, root, logs, socket, listen, owner string) string {
+	gate := ""
+	if hostingUserName(owner) && exists(hostingStatePath(owner)) {
+		_ = ensureHostingBandwidthGate(owner)
+		gate = " include " + hostingBandwidthGatePath(owner) + ";\n"
+	}
+	return fmt.Sprintf("server {\n listen %s;\n server_name %s;\n%s root %s;\n index index.php index.html;\n access_log %s/access.log;\n error_log %s/error.log;\n client_max_body_size 128m;\n location / { try_files $uri $uri/ /index.php?$query_string; }\n location ~ \\.php$ { try_files $uri =404; include fastcgi_params; fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name; fastcgi_pass unix:%s; }\n location ~ /\\. { deny all; }\n}\n", listen, d, gate, root, logs, logs, socket)
 }
 func deleteWebsite(w http.ResponseWriter, r *http.Request) {
 	d := strings.ToLower(r.URL.Query().Get("domain"))
@@ -401,6 +460,15 @@ func deleteWebsite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m := siteMeta(d)
+	cfwarn := ""
+	if m != nil {
+		tid := strings.ToLower(strings.TrimSpace(fmt.Sprint(m["cloudflare_tunnel_id"])))
+		if cfID(tid) {
+			if e := cfDeleteTunnelRoute(effectiveCloudflareConfig(), tid, d, true); e != nil {
+				cfwarn = e.Error()
+			}
+		}
+	}
 	vhost := "/etc/nginx/xshoter/sites-enabled/" + d + ".conf"
 	pool := ""
 	ver := ""
@@ -413,6 +481,13 @@ func deleteWebsite(w http.ResponseWriter, r *http.Request) {
 		}
 		if x := fmt.Sprint(m["php"]); phpRE.MatchString(x) {
 			ver = x
+		}
+	}
+	if m != nil {
+		if unit := fmt.Sprint(m["service"]); strings.HasPrefix(unit, "xshoter-app-") && strings.HasSuffix(unit, ".service") {
+			_, _ = cmd("systemctl", "disable", "--now", unit)
+			_ = os.Remove(filepath.Join("/etc/systemd/system", unit))
+			_, _ = cmd("systemctl", "daemon-reload")
 		}
 	}
 	_ = os.Remove(vhost)
@@ -435,8 +510,13 @@ func deleteWebsite(w http.ResponseWriter, r *http.Request) {
 				_ = os.RemoveAll(x)
 			}
 		}
+		if m != nil {
+			if owner := fmt.Sprint(m["owner"]); hostingUserName(owner) {
+				_ = os.RemoveAll(filepath.Join("/home", owner, "apps", d))
+			}
+		}
 	}
-	out(w, 200, R{"ok": true})
+	out(w, 200, R{"ok": true, "cloudflare_warning": cfwarn})
 }
 func databases(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
@@ -943,6 +1023,9 @@ func filesAPI(w http.ResponseWriter, r *http.Request) {
 			fail(w, 500, e.Error())
 			return
 		}
+		if u := webPathOwner(p); u != "" {
+			_, _ = cmd("chown", u+":"+u, p)
+		}
 		out(w, 200, R{"ok": true})
 		return
 	}
@@ -1018,6 +1101,538 @@ func sshKeys(w http.ResponseWriter, r *http.Request) {
 	}
 	fail(w, 405, "method not allowed")
 }
+func hostingUserName(v string) bool {
+	return regexp.MustCompile(`^[a-z_][a-z0-9_-]{2,30}$`).MatchString(v)
+}
+
+func runtimeInventory(w http.ResponseWriter, r *http.Request) {
+	php := []string{}
+	if rows, _ := filepath.Glob("/etc/php/*/fpm"); len(rows) > 0 {
+		seen := map[string]bool{}
+		for _, x := range rows {
+			v := filepath.Base(filepath.Dir(x))
+			if phpRE.MatchString(v) && !seen[v] {
+				seen[v] = true
+				php = append(php, v)
+			}
+		}
+	}
+	get := func(n string, a ...string) string {
+		x, e := cmd(n, a...)
+		if e != nil {
+			return ""
+		}
+		return strings.TrimSpace(x)
+	}
+	out(w, 200, R{"ok": true, "php": php, "node": get("node", "--version"), "npm": get("npm", "--version"), "python": get("python3", "--version"), "composer": get("composer", "--version")})
+}
+
+func hostingQuotaEnabled() (bool, string) {
+	b, e := os.ReadFile("/proc/mounts")
+	if e != nil {
+		return false, "unknown"
+	}
+	for _, l := range strings.Split(string(b), "\n") {
+		f := strings.Fields(l)
+		if len(f) < 4 || f[1] != "/" {
+			continue
+		}
+		for _, o := range strings.Split(f[3], ",") {
+			if o == "usrquota" || o == "quota" {
+				return true, "filesystem"
+			}
+		}
+		return false, "soft"
+	}
+	return false, "unknown"
+}
+func hostingStatePath(u string) string { return state + "/hosting/users/" + u + ".json" }
+func hostingState(u string) map[string]any {
+	b, e := os.ReadFile(hostingStatePath(u))
+	if e != nil {
+		return map[string]any{}
+	}
+	var v map[string]any
+	if json.Unmarshal(b, &v) != nil {
+		return map[string]any{}
+	}
+	return v
+}
+func applyHostingQuota(u string, diskMB int64) (bool, error) {
+	hard, _ := hostingQuotaEnabled()
+	if !hard {
+		return false, nil
+	}
+	blocks := diskMB * 1024
+	if _, e := cmd("setquota", "-u", u, strconv.FormatInt(blocks, 10), strconv.FormatInt(blocks, 10), "0", "0", "/"); e != nil {
+		return true, e
+	}
+	return true, nil
+}
+func hostingQuotaStatus(w http.ResponseWriter, r *http.Request) {
+	hard, mode := hostingQuotaEnabled()
+	out(w, 200, R{"ok": true, "hard_quota": hard, "mode": mode, "filesystem": "/", "message": map[bool]string{true: "OS filesystem quota enabled", false: "Soft quota enforcement active; enable usrquota during a maintenance window for OS-level hard limits"}[hard]})
+}
+func hostingUsage(w http.ResponseWriter, r *http.Request) {
+	u := strings.TrimSpace(r.URL.Query().Get("user"))
+	if !hostingUserName(u) {
+		fail(w, 400, "invalid hosting user")
+		return
+	}
+	home := "/home/" + u
+	if _, e := user.Lookup(u); e != nil {
+		fail(w, 404, "hosting user not provisioned")
+		return
+	}
+	used := int64(0)
+	if b, e := cmd("du", "-sb", home); e == nil {
+		f := strings.Fields(string(b))
+		if len(f) > 0 {
+			used, _ = strconv.ParseInt(f[0], 10, 64)
+		}
+	}
+	st := hostingState(u)
+	limit := int64(0)
+	if x, ok := st["disk_limit_bytes"].(float64); ok {
+		limit = int64(x)
+	}
+	hard, mode := hostingQuotaEnabled()
+	over := limit > 0 && used > limit
+	out(w, 200, R{"ok": true, "user": u, "home": home, "used_bytes": used, "disk_limit_bytes": limit, "over_quota": over, "hard_quota": hard, "quota_mode": mode, "status": fmt.Sprint(st["status"])})
+}
+func hostingProvision(w http.ResponseWriter, r *http.Request) {
+	var v struct {
+		User        string `json:"user"`
+		DiskMB      int64  `json:"disk_mb"`
+		SFTPEnabled bool   `json:"sftp_enabled"`
+		Status      string `json:"status"`
+		CPUPercent  int64  `json:"cpu_percent"`
+		MemoryMB    int64  `json:"memory_mb"`
+		Processes   int64  `json:"processes"`
+	}
+	if body(r, &v) != nil {
+		fail(w, 400, "invalid json")
+		return
+	}
+	v.User = strings.ToLower(strings.TrimSpace(v.User))
+	v.Status = strings.ToLower(strings.TrimSpace(v.Status))
+	if v.Status == "" {
+		v.Status = "active"
+	}
+	if v.CPUPercent == 0 {
+		v.CPUPercent = 100
+	}
+	if v.MemoryMB == 0 {
+		v.MemoryMB = 512
+	}
+	if v.Processes == 0 {
+		v.Processes = 64
+	}
+	if !hostingUserName(v.User) || v.DiskMB < 50 || v.DiskMB > 1048576 || !validHostingResources(v.CPUPercent, v.MemoryMB, v.Processes) || (v.Status != "active" && v.Status != "suspended") {
+		fail(w, 400, "invalid hosting provision request")
+		return
+	}
+	if _, e := user.LookupGroup("xshoter-hosting"); e != nil {
+		if _, e = cmd("groupadd", "--system", "xshoter-hosting"); e != nil {
+			fail(w, 500, "cannot create hosting group: "+e.Error())
+			return
+		}
+	}
+	if _, e := user.Lookup(v.User); e != nil {
+		if _, e = cmd("useradd", "-m", "-U", "-s", "/usr/sbin/nologin", v.User); e != nil {
+			fail(w, 500, "cannot create hosting user: "+e.Error())
+			return
+		}
+	}
+	if v.SFTPEnabled {
+		_, _ = cmd("usermod", "-a", "-G", "xshoter-hosting", v.User)
+	} else {
+		_, _ = cmd("gpasswd", "-d", v.User, "xshoter-hosting")
+	}
+	home := "/home/" + v.User
+	for _, d := range []string{home, home + "/web", home + "/backups", home + "/apps", home + "/tmp", home + "/logs"} {
+		if e := os.MkdirAll(d, 0750); e != nil {
+			fail(w, 500, e.Error())
+			return
+		}
+	}
+	_, _ = cmd("chown", "-R", v.User+":"+v.User, home)
+	_, _ = cmd("chown", "root:root", home)
+	_ = os.Chmod(home, 0755)
+	_ = os.Chmod(home+"/web", 0711)
+	for _, d := range []string{home + "/backups", home + "/apps", home + "/tmp", home + "/logs"} {
+		_ = os.Chmod(d, 0750)
+	}
+	if e := ensureHostingBandwidthGate(v.User); e != nil {
+		fail(w, 500, "cannot prepare bandwidth gate: "+e.Error())
+		return
+	}
+	hard, e := applyHostingQuota(v.User, v.DiskMB)
+	if e != nil {
+		fail(w, 500, "cannot apply filesystem quota: "+e.Error())
+		return
+	}
+	if v.Status == "suspended" {
+		_ = os.Chmod(home, 0700)
+		_, _ = cmd("chage", "-E", "1", v.User)
+		_, _ = cmd("pkill", "-KILL", "-u", v.User)
+	} else {
+		_ = os.Chmod(home, 0755)
+		_, _ = cmd("chage", "-E", "-1", v.User)
+	}
+	st := R{"user": v.User, "disk_limit_bytes": v.DiskMB * 1024 * 1024, "status": v.Status, "cpu_percent": v.CPUPercent, "memory_mb": v.MemoryMB, "processes": v.Processes, "updated_at": time.Now().Unix()}
+	_ = writeStateJSON(hostingStatePath(v.User), st)
+	resources, e := applyHostingResourceLimits(v.User, v.CPUPercent, v.MemoryMB, v.Processes)
+	if e != nil {
+		fail(w, 500, "cannot apply hosting resource limits: "+e.Error())
+		return
+	}
+	uu, _ := user.Lookup(v.User)
+	uid, gid := "", ""
+	if uu != nil {
+		uid, gid = uu.Uid, uu.Gid
+	}
+	used := int64(0)
+	if b, e := cmd("du", "-sb", home); e == nil {
+		f := strings.Fields(string(b))
+		if len(f) > 0 {
+			used, _ = strconv.ParseInt(f[0], 10, 64)
+		}
+	}
+	out(w, 200, R{"ok": true, "user": v.User, "uid": uid, "gid": gid, "home": home, "used_bytes": used, "disk_limit_bytes": v.DiskMB * 1024 * 1024, "hard_quota": hard, "quota_mode": map[bool]string{true: "filesystem", false: "soft"}[hard], "isolation": "dedicated-linux-user", "status": v.Status, "resources": resources})
+}
+func hostingControl(w http.ResponseWriter, r *http.Request) {
+	var v struct {
+		User   string `json:"user"`
+		Status string `json:"status"`
+	}
+	if body(r, &v) != nil {
+		fail(w, 400, "invalid json")
+		return
+	}
+	v.User = strings.ToLower(strings.TrimSpace(v.User))
+	v.Status = strings.ToLower(strings.TrimSpace(v.Status))
+	if !hostingUserName(v.User) || (v.Status != "active" && v.Status != "suspended") {
+		fail(w, 400, "invalid hosting control request")
+		return
+	}
+	if _, e := user.Lookup(v.User); e != nil {
+		fail(w, 404, "hosting user not provisioned")
+		return
+	}
+	home := "/home/" + v.User
+	st := hostingState(v.User)
+	st["user"] = v.User
+	st["status"] = v.Status
+	st["updated_at"] = time.Now().Unix()
+	_ = writeStateJSON(hostingStatePath(v.User), st)
+	if v.Status == "suspended" {
+		_ = os.Chmod(home, 0700)
+		_, _ = cmd("chage", "-E", "1", v.User)
+		_, _ = cmd("pkill", "-KILL", "-u", v.User)
+	} else {
+		_ = os.Chmod(home, 0755)
+		_, _ = cmd("chage", "-E", "-1", v.User)
+	}
+	out(w, 200, R{"ok": true, "user": v.User, "status": v.Status})
+}
+
+func ensureHostingSFTPConfig() error {
+	p := "/etc/ssh/sshd_config.d/90-xshoter-hosting.conf"
+	want := "# Managed by Xshoter Control\nMatch Group xshoter-hosting\n    ChrootDirectory %h\n    ForceCommand internal-sftp -d /\n    PasswordAuthentication yes\n    PubkeyAuthentication yes\n    X11Forwarding no\n    AllowTcpForwarding no\n    PermitTTY no\nMatch all\n"
+	if b, e := os.ReadFile(p); e == nil && string(b) == want {
+		return nil
+	}
+	old, _ := os.ReadFile(p)
+	if e := os.WriteFile(p, []byte(want), 0644); e != nil {
+		return e
+	}
+	if _, e := cmd("sshd", "-t"); e != nil {
+		if len(old) > 0 {
+			_ = os.WriteFile(p, old, 0644)
+		} else {
+			_ = os.Remove(p)
+		}
+		return e
+	}
+	if _, e := cmd("systemctl", "reload", "ssh"); e != nil {
+		return e
+	}
+	return nil
+}
+
+func hostingSFTP(w http.ResponseWriter, r *http.Request) {
+	u := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("user")))
+	if r.Method == "POST" {
+		var v struct {
+			User   string `json:"user"`
+			Action string `json:"action"`
+		}
+		if body(r, &v) != nil {
+			fail(w, 400, "invalid json")
+			return
+		}
+		u = strings.ToLower(strings.TrimSpace(v.User))
+		if !hostingUserName(u) {
+			fail(w, 400, "invalid hosting user")
+			return
+		}
+		if _, e := user.Lookup(u); e != nil {
+			fail(w, 404, "hosting user not provisioned")
+			return
+		}
+		if e := ensureHostingSFTPConfig(); e != nil {
+			fail(w, 500, "cannot configure sftp: "+e.Error())
+			return
+		}
+		home := "/home/" + u
+		_ = os.Chown(home, 0, 0)
+		_ = os.Chmod(home, 0755)
+		if v.Action == "enable" {
+			_, _ = cmd("chage", "-E", "-1", u)
+			out(w, 200, R{"ok": true, "user": u, "enabled": true})
+			return
+		}
+		if v.Action == "disable" {
+			_, _ = cmd("chage", "-E", "1", u)
+			out(w, 200, R{"ok": true, "user": u, "enabled": false})
+			return
+		}
+		if v.Action == "reset_password" {
+			pass := hexRand(12)
+			c := exec.Command("chpasswd")
+			c.Stdin = strings.NewReader(u + ":" + pass + "\n")
+			if b, e := c.CombinedOutput(); e != nil {
+				fail(w, 500, "cannot set sftp password: "+strings.TrimSpace(string(b)))
+				return
+			}
+			_, _ = cmd("chage", "-E", "-1", u)
+			out(w, 200, R{"ok": true, "user": u, "password": pass, "host": host(), "port": 22})
+			return
+		}
+		fail(w, 400, "invalid sftp action")
+		return
+	}
+	if r.Method != "GET" {
+		fail(w, 405, "method not allowed")
+		return
+	}
+	if !hostingUserName(u) {
+		fail(w, 400, "invalid hosting user")
+		return
+	}
+	if _, e := user.Lookup(u); e != nil {
+		fail(w, 404, "hosting user not provisioned")
+		return
+	}
+	st, _ := cmd("passwd", "-S", u)
+	enabled := !strings.Contains(st, " L ")
+	out(w, 200, R{"ok": true, "user": u, "enabled": enabled, "host": host(), "port": 22, "chroot": "/", "password_auth": true})
+}
+
+func hostingBackups(w http.ResponseWriter, r *http.Request) {
+	u := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("user")))
+	if r.Method == "POST" {
+		var v struct {
+			User, Type, Name string
+			LimitMB          int64 `json:"limit_mb"`
+		}
+		if body(r, &v) != nil {
+			fail(w, 400, "invalid json")
+			return
+		}
+		u = strings.ToLower(strings.TrimSpace(v.User))
+		if !hostingUserName(u) {
+			fail(w, 400, "invalid hosting user")
+			return
+		}
+		if _, e := user.Lookup(u); e != nil {
+			fail(w, 404, "hosting user not provisioned")
+			return
+		}
+		dir := "/home/" + u + "/backups"
+		_ = os.MkdirAll(dir, 0750)
+		ts := time.Now().Format("20060102-150405")
+		file := ""
+		if v.Type == "website" {
+			h := strings.ToLower(strings.TrimSpace(v.Name))
+			if !domainRE.MatchString(h) {
+				fail(w, 400, "invalid website")
+				return
+			}
+			base := "/home/" + u + "/web/" + h
+			if !exists(base) {
+				fail(w, 404, "website not found")
+				return
+			}
+			file = "web-" + h + "-" + ts + ".tar.gz"
+			if _, e := cmd("tar", "-czf", filepath.Join(dir, file), "-C", filepath.Dir(base), filepath.Base(base)); e != nil {
+				fail(w, 500, e.Error())
+				return
+			}
+		} else if v.Type == "database" {
+			n := strings.TrimSpace(v.Name)
+			if !nameRE.MatchString(n) || !strings.HasPrefix(n, u+"_") {
+				fail(w, 400, "invalid database")
+				return
+			}
+			file = "db-" + n + "-" + ts + ".sql"
+			f, e := os.OpenFile(filepath.Join(dir, file), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
+			if e != nil {
+				fail(w, 500, e.Error())
+				return
+			}
+			c := exec.Command("mariadb-dump", n)
+			c.Stdout = f
+			e = c.Run()
+			_ = f.Close()
+			if e != nil {
+				_ = os.Remove(filepath.Join(dir, file))
+				fail(w, 500, "database backup failed")
+				return
+			}
+		} else {
+			fail(w, 400, "invalid backup type")
+			return
+		}
+		p := filepath.Join(dir, file)
+		_, _ = cmd("chown", u+":"+u, p)
+		_ = os.Chmod(p, 0640)
+		used := int64(0)
+		if b, e := cmd("du", "-sb", "/home/"+u); e == nil {
+			f := strings.Fields(b)
+			if len(f) > 0 {
+				used, _ = strconv.ParseInt(f[0], 10, 64)
+			}
+		}
+		if v.LimitMB > 0 && used > v.LimitMB*1024*1024 {
+			_ = os.Remove(p)
+			fail(w, 409, "disk quota exceeded by backup")
+			return
+		}
+		st, _ := os.Stat(p)
+		sz := int64(0)
+		if st != nil {
+			sz = st.Size()
+		}
+		out(w, 201, R{"ok": true, "file": file, "size": sz, "type": v.Type, "target": v.Name})
+		return
+	}
+	if !hostingUserName(u) {
+		fail(w, 400, "invalid hosting user")
+		return
+	}
+	dir := "/home/" + u + "/backups"
+	if r.Method == "GET" {
+		a := []R{}
+		es, _ := os.ReadDir(dir)
+		for _, e := range es {
+			if e.IsDir() {
+				continue
+			}
+			i, _ := e.Info()
+			if i != nil {
+				a = append(a, R{"file": e.Name(), "size": i.Size(), "time": i.ModTime()})
+			}
+		}
+		out(w, 200, R{"ok": true, "items": a})
+		return
+	}
+	if r.Method == "DELETE" {
+		raw := strings.TrimSpace(r.URL.Query().Get("file"))
+		f := filepath.Base(raw)
+		hostingBackupRE := regexp.MustCompile(`^(?:web-[a-z0-9.-]+-[0-9]{8}-[0-9]{6}\.tar\.gz|db-[A-Za-z0-9_]+-[0-9]{8}-[0-9]{6}\.sql)$`)
+		if raw != f || !hostingBackupRE.MatchString(f) {
+			fail(w, 400, "invalid backup file")
+			return
+		}
+		p := filepath.Join(dir, f)
+		if !exists(p) {
+			fail(w, 404, "backup not found")
+			return
+		}
+		if e := os.Remove(p); e != nil {
+			fail(w, 500, e.Error())
+			return
+		}
+		out(w, 200, R{"ok": true})
+		return
+	}
+	fail(w, 405, "method not allowed")
+}
+
+func cronShellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
+func hostingCron(w http.ResponseWriter, r *http.Request) {
+	u := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("user")))
+	if r.Method == "POST" || r.Method == "PATCH" {
+		var v struct{ User, ID, Schedule, Command string }
+		if body(r, &v) != nil {
+			fail(w, 400, "invalid json")
+			return
+		}
+		u = strings.ToLower(strings.TrimSpace(v.User))
+		if !hostingUserName(u) || !cronRE.MatchString(v.Schedule) || len(v.Command) < 1 || len(v.Command) > 400 || strings.Contains(v.Command, "\n") {
+			fail(w, 400, "invalid hosting cron")
+			return
+		}
+		if _, e := user.Lookup(u); e != nil {
+			fail(w, 404, "hosting user not provisioned")
+			return
+		}
+		id := v.ID
+		if r.Method == "POST" {
+			id = hexRand(8)
+		}
+		if !regexp.MustCompile(`^[a-f0-9]{16}$`).MatchString(id) {
+			fail(w, 400, "invalid cron id")
+			return
+		}
+		p := "/etc/cron.d/xshoter-client-" + u + "-" + id
+		content := hostingCronCommand(loadHostingResourceLimits(u), id, v.Schedule, v.Command)
+		if e := os.WriteFile(p, []byte(content), 0644); e != nil {
+			fail(w, 500, e.Error())
+			return
+		}
+		meta := R{"id": id, "user": u, "schedule": v.Schedule, "command": v.Command}
+		_ = writeStateJSON(state+"/hosting-cron/"+u+"/"+id+".json", meta)
+		out(w, map[bool]int{true: 200, false: 201}[r.Method == "PATCH"], R{"ok": true, "id": id})
+		return
+	}
+	if !hostingUserName(u) {
+		fail(w, 400, "invalid hosting user")
+		return
+	}
+	dir := state + "/hosting-cron/" + u
+	if r.Method == "GET" {
+		a := []R{}
+		fs, _ := filepath.Glob(dir + "/*.json")
+		for _, p := range fs {
+			b, e := os.ReadFile(p)
+			if e != nil {
+				continue
+			}
+			var m map[string]any
+			if json.Unmarshal(b, &m) == nil {
+				a = append(a, R{"id": m["id"], "schedule": m["schedule"], "command": m["command"]})
+			}
+		}
+		out(w, 200, R{"ok": true, "items": a})
+		return
+	}
+	if r.Method == "DELETE" {
+		id := r.URL.Query().Get("id")
+		if !regexp.MustCompile(`^[a-f0-9]{16}$`).MatchString(id) {
+			fail(w, 400, "invalid cron id")
+			return
+		}
+		_ = os.Remove("/etc/cron.d/xshoter-client-" + u + "-" + id)
+		_ = os.Remove(dir + "/" + id + ".json")
+		out(w, 200, R{"ok": true})
+		return
+	}
+	fail(w, 405, "method not allowed")
+}
+
 func serverUsers(w http.ResponseWriter, r *http.Request) {
 	wanted := map[string]bool{"root": true, "xshoter": true, "admin": true}
 	b, e := os.ReadFile("/etc/passwd")

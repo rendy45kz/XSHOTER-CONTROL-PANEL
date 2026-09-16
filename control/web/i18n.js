@@ -7,6 +7,115 @@ const T={"id":{"k0":"Dasbor","k1":"Situs Web","k2":"Basis Data","k3":"Pengaturan
 
 const EXTRA=[[["Independent Server Control Plane"],"Panel Kontrol Server Independen","Independent Server Control Plane","Panel Kawalan Pelayan Bebas","Bảng điều khiển máy chủ độc lập"],[["Buat Database"],"Buat Basis Data","Create Database","Buat Pangkalan Data","Tạo cơ sở dữ liệu"],[["Belum ada website"],"Belum ada situs web","No websites yet","Belum ada laman web","Chưa có trang web"],[["Database production dikelola oleh Xshoter Control dan dapat dibuka langsung melalui phpMyAdmin."],"Basis data produksi dikelola oleh Xshoter Control dan dapat dibuka langsung melalui phpMyAdmin.","Production databases are managed by Xshoter Control and can be opened directly in phpMyAdmin.","Pangkalan data produksi diurus oleh Xshoter Control dan boleh dibuka terus melalui phpMyAdmin.","Cơ sở dữ liệu production được Xshoter Control quản lý và có thể mở trực tiếp bằng phpMyAdmin."],[["Database dibuat. Simpan password ini sekarang:"],"Basis data dibuat. Simpan kata sandi ini sekarang:","Database created. Save this password now:","Pangkalan data dicipta. Simpan kata laluan ini sekarang:","Đã tạo cơ sở dữ liệu. Hãy lưu mật khẩu này ngay:"],[["Backup selesai"],"Pencadangan selesai","Backup completed","Sandaran selesai","Sao lưu hoàn tất"],[["Schedule cron:"],"Jadwal cron:","Cron schedule:","Jadual cron:","Lịch cron:"],[["User:"],"Pengguna:","User:","Pengguna:","Người dùng:"],[["Command:"],"Perintah:","Command:","Arahan:","Lệnh:"],[["Kelola via Security"],"Kelola melalui Keamanan","Manage via Security","Urus melalui Keselamatan","Quản lý qua Bảo mật"],[["Owner dilindungi. Admin dapat mengelola server; Viewer hanya read-only."],"Pemilik dilindungi. Admin dapat mengelola server; Viewer hanya memiliki akses baca-saja.","The owner is protected. Admins can manage the server; Viewers are read-only.","Pemilik dilindungi. Admin boleh mengurus pelayan; Viewer hanya baca sahaja.","Chủ sở hữu được bảo vệ. Admin có thể quản lý máy chủ; Viewer chỉ có quyền đọc."],[["Role baru: admin atau viewer"],"Peran baru: admin atau viewer","New role: admin or viewer","Peranan baharu: admin atau viewer","Vai trò mới: admin hoặc viewer"],[["Password baru (minimal 10 karakter):"],"Kata sandi baru (minimal 10 karakter):","New password (minimum 10 characters):","Kata laluan baharu (minimum 10 aksara):","Mật khẩu mới (tối thiểu 10 ký tự):"],[["Password direset dan session dicabut"],"Kata sandi diatur ulang dan sesi dicabut","Password reset and sessions revoked","Kata laluan ditetapkan semula dan sesi dibatalkan","Đã đặt lại mật khẩu và thu hồi phiên"],[["Semua session dicabut"],"Semua sesi dicabut","All sessions revoked","Semua sesi dibatalkan","Đã thu hồi tất cả phiên"],[["Hanya digunakan untuk MX"],"Hanya digunakan untuk MX","Used for MX only","Hanya digunakan untuk MX","Chỉ dùng cho MX"],[["Managed at Cloudflare edge"],"Dikelola di edge Cloudflare","Managed at Cloudflare edge","Diurus di edge Cloudflare","Được quản lý tại Cloudflare edge"],[["record"],"rekaman","record","rekod","bản ghi"],[["System"],"Sistem","System","Sistem","Hệ thống"],[["Static"],"Statis","Static","Statik","Tĩnh"],[["Proxy"],"Proxy","Proxy","Proksi","Proxy"],[["Cancel"],"Batal","Cancel","Batal","Hủy"],[["Language"],"Bahasa","Language","Bahasa","Ngôn ngữ"]];
 for(let i=0;i<EXTRA.length;i++){const [srcs,idv,env,msv,viv]=EXTRA[i],k=`x${i}`;for(const a of srcs)ALIASES[a]=k;T.id[k]=idv;T.en[k]=env;T.ms[k]=msv;T.vi[k]=viv;}
+
+const EXTRA_V102=[
+[["Hosting Provider"],"Penyedia Hosting","Hosting Provider","Penyedia Hosting","Nhà cung cấp Hosting"],
+[["Hosting"],"Hosting","Hosting","Hosting","Hosting"],
+[["App Installer"],"Pemasang Aplikasi","App Installer","Pemasang Aplikasi","Trình cài đặt ứng dụng"],
+[["SFTP"],"SFTP","SFTP","SFTP","SFTP"],
+[["Konfirmasi password tidak sama"],"Konfirmasi kata sandi tidak sama","Password confirmation does not match","Pengesahan kata laluan tidak sepadan","Xác nhận mật khẩu không khớp"],
+[["Tidak dapat memeriksa pembaruan"],"Tidak dapat memeriksa pembaruan","Unable to check for updates","Tidak dapat menyemak kemas kini","Không thể kiểm tra cập nhật"],
+[["GitHub release API unavailable"],"API rilis GitHub tidak tersedia","GitHub release API unavailable","API keluaran GitHub tidak tersedia","API bản phát hành GitHub không khả dụng"],
+[["Pembaruan tersedia","Update available"],"Pembaruan tersedia","Update available","Kemas kini tersedia","Có bản cập nhật"],
+[["Xshoter terbaru","Up to date"],"Xshoter terbaru","Xshoter is up to date","Xshoter terkini","Xshoter đã cập nhật"],
+[["Versi terpasang"],"Versi terpasang","Installed version","Versi dipasang","Phiên bản đã cài"],
+[["Versi terbaru"],"Versi terbaru","Latest version","Versi terkini","Phiên bản mới nhất"],
+[["Lihat Pembaruan"],"Lihat Pembaruan","View Updates","Lihat Kemas Kini","Xem cập nhật"],
+[["Website + Cloudflare aktif"],"Website + Cloudflare aktif","Website + Cloudflare active","Laman web + Cloudflare aktif","Trang web + Cloudflare đang hoạt động"],
+[["Permintaan SSL selesai"],"Permintaan SSL selesai","SSL request completed","Permintaan SSL selesai","Yêu cầu SSL đã hoàn tất"],
+[["Konfigurasi website dihapus"],"Konfigurasi website dihapus","Website configuration deleted","Konfigurasi laman web dipadam","Đã xóa cấu hình trang web"],
+[["Backup database dibuat"],"Cadangan basis data dibuat","Database backup created","Sandaran pangkalan data dicipta","Đã tạo bản sao lưu cơ sở dữ liệu"],
+[["Firewall Rule Baru"],"Aturan Firewall Baru","New Firewall Rule","Peraturan Firewall Baharu","Quy tắc tường lửa mới"],
+[["Firewall rule ditambahkan"],"Aturan firewall ditambahkan","Firewall rule added","Peraturan firewall ditambah","Đã thêm quy tắc tường lửa"],
+[["Hapus firewall rule Xshoter ini?"],"Hapus aturan firewall Xshoter ini?","Delete this Xshoter firewall rule?","Padam peraturan firewall Xshoter ini?","Xóa quy tắc tường lửa Xshoter này?"],
+[["Firewall rule dihapus"],"Aturan firewall dihapus","Firewall rule deleted","Peraturan firewall dipadam","Đã xóa quy tắc tường lửa"],
+[["Belum ada rule custom."],"Belum ada aturan khusus.","No custom rules yet.","Belum ada peraturan tersuai.","Chưa có quy tắc tùy chỉnh."],
+[["Rule di bagian ini dikelola Xshoter dan dipulihkan otomatis setelah reboot."],"Aturan di bagian ini dikelola Xshoter dan dipulihkan otomatis setelah reboot.","Rules in this section are managed by Xshoter and restored automatically after reboot.","Peraturan di bahagian ini diurus Xshoter dan dipulihkan secara automatik selepas reboot.","Các quy tắc trong phần này do Xshoter quản lý và tự động khôi phục sau khi khởi động lại."],
+[["Base firewall dan chain Fail2Ban ditampilkan read-only agar proteksi server tidak terhapus secara tidak sengaja."],"Firewall dasar dan chain Fail2Ban ditampilkan baca-saja agar perlindungan server tidak terhapus tanpa sengaja.","Base firewall and Fail2Ban chains are read-only so server protection cannot be removed accidentally.","Firewall asas dan chain Fail2Ban dipaparkan baca sahaja supaya perlindungan pelayan tidak terpadam secara tidak sengaja.","Tường lửa cơ sở và chuỗi Fail2Ban chỉ đọc để tránh vô tình xóa bảo vệ máy chủ."],
+[["Role diperbarui"],"Peran diperbarui","Role updated","Peranan dikemas kini","Đã cập nhật vai trò"],
+[["Reset 2FA user ini dan logout semua session?"],"Atur ulang 2FA pengguna ini dan keluarkan semua sesi?","Reset this user's 2FA and log out all sessions?","Tetapkan semula 2FA pengguna ini dan log keluar semua sesi?","Đặt lại 2FA của người dùng này và đăng xuất mọi phiên?"],
+[["2FA direset"],"2FA diatur ulang","2FA reset","2FA ditetapkan semula","Đã đặt lại 2FA"],
+[["Logout semua session user ini?"],"Keluarkan semua sesi pengguna ini?","Log out all sessions for this user?","Log keluar semua sesi pengguna ini?","Đăng xuất tất cả phiên của người dùng này?"],
+[["Hapus user panel ini?"],"Hapus pengguna panel ini?","Delete this panel user?","Padam pengguna panel ini?","Xóa người dùng bảng điều khiển này?"],
+[["2FA aktif"],"2FA aktif","2FA enabled","2FA aktif","2FA đang bật"],
+[["2FA dinonaktifkan"],"2FA dinonaktifkan","2FA disabled","2FA dinyahaktifkan","2FA đã tắt"],
+[["Cloudflare Account Integration"],"Integrasi Akun Cloudflare","Cloudflare Account Integration","Integrasi Akaun Cloudflare","Tích hợp tài khoản Cloudflare"],
+[["Account API Token & R2"],"Token API Akun & R2","Account API Token & R2","Token API Akaun & R2","Token API tài khoản & R2"],
+[["Connection Test"],"Uji Koneksi","Connection Test","Ujian Sambungan","Kiểm tra kết nối"],
+[["Belum dites."],"Belum diuji.","Not tested yet.","Belum diuji.","Chưa kiểm tra."],
+[["Not configured"],"Belum dikonfigurasi","Not configured","Belum dikonfigurasi","Chưa cấu hình"],
+[["Connected"],"Terhubung","Connected","Disambungkan","Đã kết nối"],
+[["Waiting for token"],"Menunggu token","Waiting for token","Menunggu token","Đang chờ token"],
+[["Stored"],"Tersimpan","Stored","Disimpan","Đã lưu"],
+[["Missing"],"Tidak tersedia","Missing","Tiada","Thiếu"],
+[["Configured"],"Terkonfigurasi","Configured","Dikonfigurasi","Đã cấu hình"],
+[["Optional"],"Opsional","Optional","Pilihan","Tùy chọn"],
+[["Tersimpan · kosongkan untuk mempertahankan"],"Tersimpan · kosongkan untuk mempertahankan","Stored · leave blank to keep","Disimpan · kosongkan untuk kekalkan","Đã lưu · để trống để giữ nguyên"],
+[["Cloudflare integration disimpan"],"Integrasi Cloudflare disimpan","Cloudflare integration saved","Integrasi Cloudflare disimpan","Đã lưu tích hợp Cloudflare"],
+[["Menguji koneksi…"],"Menguji koneksi…","Testing connection…","Menguji sambungan…","Đang kiểm tra kết nối…"],
+[["Gunakan Cloudflare Tunnel sebagai Content"],"Gunakan Cloudflare Tunnel sebagai Konten","Use Cloudflare Tunnel as Content","Gunakan Cloudflare Tunnel sebagai Kandungan","Dùng Cloudflare Tunnel làm Nội dung"],
+[["Pilih tunnel yang tersedia"],"Pilih tunnel yang tersedia","Select an available tunnel","Pilih tunnel yang tersedia","Chọn tunnel khả dụng"],
+[["Jika dipilih, Content otomatis menjadi <Tunnel ID>.cfargotunnel.com dan record diatur sebagai CNAME + Proxied."],"Jika dipilih, Konten otomatis menjadi <Tunnel ID>.cfargotunnel.com dan rekaman diatur sebagai CNAME + Proxied.","When selected, Content automatically becomes <Tunnel ID>.cfargotunnel.com and the record is set to CNAME + Proxied.","Jika dipilih, Kandungan automatik menjadi <Tunnel ID>.cfargotunnel.com dan rekod ditetapkan sebagai CNAME + Proxied.","Khi chọn, Nội dung tự động trở thành <Tunnel ID>.cfargotunnel.com và bản ghi được đặt thành CNAME + Proxied."],
+[["Belum ada Cloudflare Tunnel yang tersedia."],"Belum ada Cloudflare Tunnel yang tersedia.","No Cloudflare Tunnel is available yet.","Belum ada Cloudflare Tunnel yang tersedia.","Chưa có Cloudflare Tunnel khả dụng."],
+[["Cloudflare settings disimpan"],"Pengaturan Cloudflare disimpan","Cloudflare settings saved","Tetapan Cloudflare disimpan","Đã lưu cài đặt Cloudflare"],
+[["Cloudflare cache dipurge"],"Cache Cloudflare dibersihkan","Cloudflare cache purged","Cache Cloudflare dibersihkan","Đã xóa cache Cloudflare"],
+[["Route diperbarui"],"Route diperbarui","Route updated","Route dikemas kini","Đã cập nhật tuyến"],
+[["Route + DNS dibuat"],"Route + DNS dibuat","Route + DNS created","Route + DNS dicipta","Đã tạo tuyến + DNS"],
+[["Simpan Route"],"Simpan Route","Save Route","Simpan Route","Lưu tuyến"],
+[["Route dan DNS dihapus"],"Route dan DNS dihapus","Route and DNS deleted","Route dan DNS dipadam","Đã xóa tuyến và DNS"],
+[["Not set"],"Belum diatur","Not set","Belum ditetapkan","Chưa đặt"],
+[["Setup required"],"Perlu penyiapan","Setup required","Persediaan diperlukan","Cần thiết lập"],
+[["Auto Zone ID"],"ID Zone Otomatis","Auto Zone ID","ID Zone Automatik","ID Zone tự động"],
+[["Stored / fallback"],"Tersimpan / fallback","Stored / fallback","Disimpan / fallback","Đã lưu / dự phòng"],
+[["Ready"],"Siap","Ready","Sedia","Sẵn sàng"],
+[["Leave blank to keep current"],"Kosongkan untuk mempertahankan nilai saat ini","Leave blank to keep current","Kosongkan untuk kekalkan nilai semasa","Để trống để giữ giá trị hiện tại"],
+[["Test Connection"],"Uji Koneksi","Test Connection","Uji Sambungan","Kiểm tra kết nối"],
+[["Save Securely"],"Simpan dengan Aman","Save Securely","Simpan dengan Selamat","Lưu an toàn"],
+[["Cloudflare credential hanya dapat diubah oleh Owner."],"Kredensial Cloudflare hanya dapat diubah oleh Pemilik.","Cloudflare credentials can only be changed by the Owner.","Kelayakan Cloudflare hanya boleh diubah oleh Pemilik.","Thông tin xác thực Cloudflare chỉ Chủ sở hữu mới có thể thay đổi."]
+ ,[["Domain"],"Domain","Domain","Domain","Tên miền"]
+ ,[["Plan"],"Paket","Plan","Pelan","Gói"]
+ ,[["Price"],"Harga","Price","Harga","Giá"]
+ ,[["Bandwidth"],"Bandwidth","Bandwidth","Jalur Lebar","Băng thông"]
+ ,[["Resources"],"Sumber Daya","Resources","Sumber","Tài nguyên"]
+ ,[["Apps"],"Aplikasi","Apps","Aplikasi","Ứng dụng"]
+ ,[["Provision"],"Provision","Provision","Provision","Provision"]
+ ,[["Cloudflare DNS"],"DNS Cloudflare","Cloudflare DNS","DNS Cloudflare","DNS Cloudflare"]
+ ,[["Hapus DNS record ini?"],"Hapus rekaman DNS ini?","Delete this DNS record?","Padam rekod DNS ini?","Xóa bản ghi DNS này?"]
+ ,[["Hostname"],"Nama Host","Hostname","Nama Hos","Tên máy chủ"]
+ ,[["Service"],"Layanan","Service","Perkhidmatan","Dịch vụ"]
+ ,[["Publish + Auto DNS"],"Publikasikan + DNS Otomatis","Publish + Auto DNS","Terbit + DNS Automatik","Xuất bản + DNS tự động"]
+ ,[["Cloudflare Account"],"Akun Cloudflare","Cloudflare Account","Akaun Cloudflare","Tài khoản Cloudflare"]
+ ,[["Domains / Zones"],"Domain / Zone","Domains / Zones","Domain / Zone","Tên miền / Zone"]
+ ,[["Zone Tools"],"Alat Zone","Zone Tools","Alat Zone","Công cụ Zone"]
+ ,[["Cloudflare Tunnel"],"Tunnel Cloudflare","Cloudflare Tunnel","Tunnel Cloudflare","Cloudflare Tunnel"]
+ ,[["Cloudflare credential disimpan"],"Kredensial Cloudflare disimpan","Cloudflare credentials saved","Kelayakan Cloudflare disimpan","Đã lưu thông tin xác thực Cloudflare"]
+ ,[["Not tested"],"Belum diuji","Not tested","Belum diuji","Chưa kiểm tra"]
+ ,[["Domain ditambahkan ke Cloudflare"],"Domain ditambahkan ke Cloudflare","Domain added to Cloudflare","Domain ditambah ke Cloudflare","Đã thêm tên miền vào Cloudflare"]
+ ,[["Ketik domain untuk menghapus zone Cloudflare:"],"Ketik domain untuk menghapus zone Cloudflare:","Type the domain to delete the Cloudflare zone:","Taip domain untuk memadam zone Cloudflare:","Nhập tên miền để xóa zone Cloudflare:"]
+ ,[["Zone dihapus"],"Zone dihapus","Zone deleted","Zone dipadam","Đã xóa zone"]
+ ,[["Nameservers"],"Nameserver","Nameservers","Nameserver","Máy chủ tên"]
+ ,[["Auto-detect if only one account"],"Deteksi otomatis jika hanya ada satu akun","Auto-detect if only one account","Kesan automatik jika hanya satu akaun","Tự phát hiện nếu chỉ có một tài khoản"]
+ ,[["Pembaruan Xshoter"],"Pembaruan Xshoter","Xshoter Updates","Kemas Kini Xshoter","Cập nhật Xshoter"]
+ ,[["unknown error"],"kesalahan tidak diketahui","unknown error","ralat tidak diketahui","lỗi không xác định"]
+ ,[["gagal"],"gagal","failed","gagal","thất bại"]
+ ,[["Account"],"Akun","Account","Akaun","Tài khoản"]
+ ,[["Zone"],"Zone","Zone","Zone","Zone"]
+ ,[["API Token"],"Token API","API Token","Token API","Token API"]
+ ,[["R2 Storage"],"Penyimpanan R2","R2 Storage","Storan R2","Lưu trữ R2"]
+
+ ,[["Root"],"Root","Root","Root","Gốc"]
+ ,[["Hapus cron ini?"],"Hapus cron ini?","Delete this cron job?","Padam cron ini?","Xóa tác vụ cron này?"]
+ ,[["Hapus SSH key ini?"],"Hapus kunci SSH ini?","Delete this SSH key?","Padam kunci SSH ini?","Xóa khóa SSH này?"]
+ ,[["Jailed"],"Terisolasi","Jailed","Terasing","Cô lập"]
+ ,[["User Panel Baru"],"Pengguna Panel Baru","New Panel User","Pengguna Panel Baharu","Người dùng bảng điều khiển mới"]
+ ,[["Server Users"],"Pengguna Server","Server Users","Pengguna Pelayan","Người dùng máy chủ"]
+ ,[["Failed"],"Gagal","Failed","Gagal","Thất bại"]
+ ,[["UNKNOWN"],"TIDAK DIKETAHUI","UNKNOWN","TIDAK DIKETAHUI","KHÔNG XÁC ĐỊNH"]
+ ,[["READY"],"SIAP","READY","SEDIA","SẴN SÀNG"]
+ ,[["SETUP"],"PENYIAPAN","SETUP","PERSEDIAAN","THIẾT LẬP"]
+
+];
+for(let i=0;i<EXTRA_V102.length;i++){const [srcs,idv,env,msv,viv]=EXTRA_V102[i],k=`v102_${i}`;for(const a of srcs)ALIASES[a]=k;T.id[k]=idv;T.en[k]=env;T.ms[k]=msv;T.vi[k]=viv;}
 let lang=localStorage.getItem('xc_lang')||'id'; if(!LANGS[lang])lang='id';
 const SKIP='SCRIPT,STYLE,PRE,CODE,TEXTAREA,.logbox,.code,.secret';
 const dynamic={
@@ -15,8 +124,15 @@ const dynamic={
  ms:[['systemd service','perkhidmatan systemd'],['Uptime ','Masa aktif '],[' hari',' hari'],['service aktif','perkhidmatan aktif'],['Xshoter managed','Diurus Xshoter'],['External resource','Sumber luaran'],['terdeteksi','dikesan'],['database','pangkalan data'],['arsip','arkib'],['Read-only','Baca sahaja'],['user managed-nya','pengguna terurusnya'],['Issue/Renew SSL','Keluarkan/Perbaharui SSL'],['Restore ','Pulihkan '],['Hapus backup ','Padam sandaran '],['Upload gagal','Muat naik gagal'],[' file berhasil di-upload',' fail berjaya dimuat naik'],[' record',' rekod'],['Static','Statik']],
  vi:[['systemd service','dịch vụ systemd'],['Uptime ','Thời gian hoạt động '],[' hari',' ngày'],['service aktif','dịch vụ đang hoạt động'],['Xshoter managed','Do Xshoter quản lý'],['External resource','Nguồn bên ngoài'],['terdeteksi','đã phát hiện'],['database','cơ sở dữ liệu'],['arsip','kho lưu trữ'],['Read-only','Chỉ đọc'],['user managed-nya','người dùng được quản lý'],['Issue/Renew SSL','Cấp/Gia hạn SSL'],['Restore ','Khôi phục '],['Hapus backup ','Xóa bản sao lưu '],['Upload gagal','Tải lên thất bại'],[' file berhasil di-upload',' tệp đã tải lên thành công'],[' record',' bản ghi'],['Static','Tĩnh']]
 };
+
+const DYNAMIC_V102={
+ id:[['Website dibuat, Cloudflare: ','Website dibuat, Cloudflare: '],['Purge seluruh cache ','Bersihkan seluruh cache '],['Hapus route dan DNS otomatis untuk ','Hapus route dan DNS otomatis untuk ']],
+ en:[['Website dibuat, Cloudflare: ','Website created, Cloudflare: '],['Purge seluruh cache ','Purge all cache for '],['Hapus route dan DNS otomatis untuk ','Delete the route and automatic DNS for ']],
+ ms:[['Website dibuat, Cloudflare: ','Laman web dicipta, Cloudflare: '],['Purge seluruh cache ','Bersihkan seluruh cache untuk '],['Hapus route dan DNS otomatis untuk ','Padam route dan DNS automatik untuk ']],
+ vi:[['Website dibuat, Cloudflare: ','Đã tạo trang web, Cloudflare: '],['Purge seluruh cache ','Xóa toàn bộ cache cho '],['Hapus route dan DNS otomatis untuk ','Xóa tuyến và DNS tự động cho ']]
+};
 function exact(s){const k=ALIASES[s];return k?(T[lang][k]||s):s}
-function text(s){if(s==null)return s;let v=String(s),lead=v.match(/^\s*/)[0],trail=v.match(/\s*$/)[0],core=v.slice(lead.length,v.length-trail.length);if(!core)return v;let out=exact(core);if(out===core){for(const [a,b] of dynamic[lang]||[])out=out.split(a).join(b)}return lead+out+trail}
+function text(s){if(s==null)return s;let v=String(s),lead=v.match(/^\s*/)[0],trail=v.match(/\s*$/)[0],core=v.slice(lead.length,v.length-trail.length);if(!core)return v;let out=exact(core);if(out===core){for(const [a,b] of [...(dynamic[lang]||[]),...(DYNAMIC_V102[lang]||[])])out=out.split(a).join(b)}return lead+out+trail}
 function translateNode(n){if(!n||!n.parentElement||n.parentElement.closest(SKIP))return;const before=n.nodeValue,after=text(before);if(after!==before)n.nodeValue=after}
 function translateElement(el){if(!el||el.matches?.(SKIP))return;if(el.tagName==='OPTION'){const val=el.value,had=el.hasAttribute('value');for(const n of [...el.childNodes])if(n.nodeType===3)translateNode(n);if(!had)el.value=val;return}for(const a of ['placeholder','title','aria-label'])if(el.hasAttribute?.(a)){const v=el.getAttribute(a),x=text(v);if(v!==x)el.setAttribute(a,x)}}
 function apply(root=document){if(root.nodeType===3){translateNode(root);return}if(root.nodeType!==1&&root.nodeType!==9)return;if(root.nodeType===1)translateElement(root);const w=document.createTreeWalker(root,NodeFilter.SHOW_ELEMENT|NodeFilter.SHOW_TEXT);let n;while(n=w.nextNode()){if(n.nodeType===3)translateNode(n);else translateElement(n)}}

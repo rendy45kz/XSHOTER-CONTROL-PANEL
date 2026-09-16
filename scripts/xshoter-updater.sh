@@ -146,10 +146,13 @@ SOURCE_VERSION="$(sed -n "s/^const VERSION = '\([^']*\)';/\1/p" "$ROOT/control/s
 write_status checking "Validating v${LATEST} before installation"
 
 node --check "$ROOT/control/server.js" >/dev/null
+node --check "$ROOT/control/provider.js" >/dev/null
 node --check "$ROOT/control/web/app.js" >/dev/null
 node --check "$ROOT/control/web/features.js" >/dev/null
 node --check "$ROOT/control/web/i18n.js" >/dev/null
 node --check "$ROOT/control/web/update-v101.js" >/dev/null
+node --check "$ROOT/control/web/provider-v102.js" >/dev/null
+node --check "$ROOT/control/web/cloudflare-v102.js" >/dev/null
 bash -n "$ROOT/scripts/install.sh" "$ROOT/scripts/upgrade.sh" "$ROOT/scripts/xshoter-updater.sh"
 ( cd "$ROOT/agent" && go build -o "$WORK/agent-check" . )
 BACKUP="$BACKUP_DIR/$(date +%Y%m%d-%H%M%S)-v${CURRENT}-to-v${LATEST}"

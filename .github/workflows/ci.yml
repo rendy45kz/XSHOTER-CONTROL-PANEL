@@ -22,7 +22,10 @@ jobs:
       - name: JavaScript syntax
         run: |
           node --check control/server.js
+          node --check control/provider.js
           node --check control/web/app.js
+          node --check control/web/provider-v102.js
+          node --check control/web/cloudflare-v102.js
           node --check control/web/features.js
           node --check control/web/i18n.js
           node --check control/web/update-v101.js

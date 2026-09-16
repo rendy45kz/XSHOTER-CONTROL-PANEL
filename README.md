@@ -3,7 +3,7 @@
 Xshoter Control is a free and open-source server control panel for Linux VPS environments. It provides a web UI backed by a restricted Node.js control service and a privileged Go agent connected through a local Unix socket.
 
 **License:** GNU GPL v3.0  
-**Current release:** 1.0.1
+**Current release:** 1.0.2
 **Default UI language:** Bahasa Indonesia, with English, Bahasa Melayu, and Tiếng Việt included.
 
 ## Features
@@ -23,6 +23,9 @@ Xshoter Control is a free and open-source server control panel for Linux VPS env
 - SSL status and certificate workflows
 - Panel users, roles, sessions, 2FA, and audit log
 - Responsive mobile UI and multi-language interface
+- Commercial hosting provider mode with plans, isolated client accounts, SFTP, backups, cron, app installer, and lifecycle controls
+- Monthly bandwidth enforcement plus CPU, RAM, and process limits for hosting clients
+- Automatic Cloudflare zone, DNS, and Tunnel workflows for managed hosting sites
 
 ## Architecture
 
