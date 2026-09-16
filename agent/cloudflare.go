@@ -26,6 +26,8 @@ var cfKeyPath = filepath.Join(state, "cloudflare.key")
 type cloudflareConfig struct {
 	AccountID       string `json:"account_id"`
 	APIToken        string `json:"api_token"`
+	ZoneAPIToken    string `json:"zone_api_token"`
+	ZoneTokenID     string `json:"zone_token_id"`
 	AccessKeyID     string `json:"access_key_id"`
 	SecretAccessKey string `json:"secret_access_key"`
 	APIEndpoint     string `json:"api_endpoint"`
@@ -300,33 +302,37 @@ func cfTokenCapabilities(c cloudflareConfig) R {
 	outv["permissions_visible"] = true
 	outv["permissions"] = uniq
 	for _, n := range uniq {
-		l := strings.ToLower(n)
-		write := strings.Contains(l, "write") || strings.Contains(l, "edit")
-		if !write {
-			continue
-		}
-		if strings.Contains(l, "dns") {
+		switch strings.ToLower(strings.TrimSpace(n)) {
+		case "dns write":
 			outv["dns_write"] = true
-		}
-		if strings.Contains(l, "zone") && !strings.Contains(l, "dns") {
+		case "zone write":
 			outv["zone_write"] = true
-		}
-		if strings.Contains(l, "tunnel") || strings.Contains(l, "connector") {
+		case "cloudflare tunnel write":
 			outv["tunnel_write"] = true
-		}
-		if strings.Contains(l, "zone settings") {
+		case "zone settings write", "zone dns settings write":
 			outv["zone_settings_write"] = true
-		}
-		if strings.Contains(l, "cache purge") || strings.Contains(l, "cache") {
+		case "cache purge":
 			outv["cache_purge"] = true
 		}
 	}
 	return outv
 }
 
+func cfEffectiveCapabilities(c cloudflareConfig) R {
+	v := cfTokenCapabilities(c)
+	v["zone_control_ready"] = c.ZoneAPIToken != ""
+	if c.ZoneAPIToken != "" {
+		v["dns_write"] = true
+		v["zone_write"] = true
+		v["zone_settings_write"] = true
+		v["cache_purge"] = true
+	}
+	return v
+}
+
 func cloudflareSummary(c cloudflareConfig, stored bool) R {
 	return R{"ok": true, "stored": stored, "configured": c.AccountID != "" && c.APIToken != "", "account_id": c.AccountID, "zone_name": c.ZoneName,
-		"api_token_set": c.APIToken != "", "api_token_masked": cfMask(c.APIToken), "r2_configured": c.AccessKeyID != "" && c.SecretAccessKey != "" && c.APIEndpoint != "",
+		"api_token_set": c.APIToken != "", "api_token_masked": cfMask(c.APIToken), "zone_control_token_set": c.ZoneAPIToken != "", "r2_configured": c.AccessKeyID != "" && c.SecretAccessKey != "" && c.APIEndpoint != "",
 		"access_key_id_masked": cfMask(c.AccessKeyID), "api_endpoint": c.APIEndpoint, "tunnel_id": c.TunnelID, "updated_at": c.UpdatedAt}
 }
 
@@ -341,7 +347,7 @@ func cloudflareConfigHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		s := cloudflareSummary(c, stored)
 		s["accounts"] = accounts
-		s["capabilities"] = cfTokenCapabilities(c)
+		s["capabilities"] = cfEffectiveCapabilities(c)
 		out(w, 200, s)
 		return
 	}
@@ -418,6 +424,92 @@ func cfRequestWithToken(method, endpoint, token string, payload any) (map[string
 	return v, nil
 }
 
+func cfZoneAccessToken(c *cloudflareConfig) (string, error) {
+	if c.APIToken == "" || c.AccountID == "" {
+		return "", fmt.Errorf("cloudflare account API token is not configured")
+	}
+	if c.ZoneAPIToken == "" {
+		if saved, ok, e := loadCloudflareStored(); e == nil && ok && saved.ZoneAPIToken != "" {
+			c.ZoneAPIToken, c.ZoneTokenID = saved.ZoneAPIToken, saved.ZoneTokenID
+		}
+	}
+	if c.ZoneAPIToken != "" {
+		if v, e := cfRequestWithToken("GET", "/accounts/"+url.PathEscape(c.AccountID)+"/tokens/verify", c.ZoneAPIToken, nil); e == nil {
+			if m, _ := v["result"].(map[string]any); m != nil && fmt.Sprint(m["status"]) == "active" {
+				return c.ZoneAPIToken, nil
+			}
+		}
+	}
+	caps := cfTokenCapabilities(*c)
+	if dns, _ := caps["dns_write"].(bool); dns {
+		if zone, _ := caps["zone_write"].(bool); zone {
+			if settings, _ := caps["zone_settings_write"].(bool); settings {
+				if purge, _ := caps["cache_purge"].(bool); purge {
+					return c.APIToken, nil
+				}
+			}
+		}
+	}
+	v, e := cfRequestWithToken("GET", "/accounts/"+url.PathEscape(c.AccountID)+"/tokens/permission_groups", c.APIToken, nil)
+	if e != nil {
+		return "", fmt.Errorf("zone access unavailable and control token cannot be created: %w", e)
+	}
+	wanted := map[string]bool{"DNS Read": true, "DNS Write": true, "Zone Read": true, "Zone Write": true, "Zone Settings Read": true, "Zone Settings Write": true, "Zone DNS Settings Read": true, "Zone DNS Settings Write": true, "Cache Purge": true}
+	groups := []map[string]any{}
+	found := map[string]bool{}
+	if a, ok := v["result"].([]any); ok {
+		for _, raw := range a {
+			m, _ := raw.(map[string]any)
+			name := strings.TrimSpace(fmt.Sprint(m["name"]))
+			if m != nil && wanted[name] {
+				id := strings.TrimSpace(fmt.Sprint(m["id"]))
+				if regexp.MustCompile(`^[a-f0-9]{32}$`).MatchString(id) {
+					groups = append(groups, map[string]any{"id": id})
+					found[name] = true
+				}
+			}
+		}
+	}
+	for _, n := range []string{"DNS Write", "Zone Read", "Zone Write", "Zone Settings Write", "Cache Purge"} {
+		if !found[n] {
+			return "", fmt.Errorf("Cloudflare permission group unavailable: %s", n)
+		}
+	}
+	resource := "com.cloudflare.api.account." + c.AccountID
+	payload := map[string]any{
+		"name": "Xshoter Control Zone Automation",
+		"policies": []any{map[string]any{
+			"effect":            "allow",
+			"resources":         map[string]any{resource: map[string]any{"com.cloudflare.api.account.zone.*": "*"}},
+			"permission_groups": groups,
+		}},
+	}
+	created, e := cfRequestWithToken("POST", "/accounts/"+url.PathEscape(c.AccountID)+"/tokens", c.APIToken, payload)
+	if e != nil {
+		return "", fmt.Errorf("failed to create Xshoter zone control token: %w", e)
+	}
+	m, _ := created["result"].(map[string]any)
+	value := strings.TrimSpace(fmt.Sprint(m["value"]))
+	id := strings.TrimSpace(fmt.Sprint(m["id"]))
+	if len(value) < 40 || value == "<nil>" {
+		return "", fmt.Errorf("Cloudflare did not return the zone control token value")
+	}
+	c.ZoneAPIToken, c.ZoneTokenID = value, id
+	c.UpdatedAt = time.Now().Unix()
+	if e := saveCloudflareConfig(*c); e != nil {
+		return "", fmt.Errorf("zone control token created but could not be stored: %w", e)
+	}
+	return value, nil
+}
+
+func cfZoneRequest(c cloudflareConfig, method, endpoint string, payload any) (map[string]any, error) {
+	token, e := cfZoneAccessToken(&c)
+	if e != nil {
+		return nil, e
+	}
+	return cfRequestWithToken(method, endpoint, token, payload)
+}
+
 func resolveCFZone(c cloudflareConfig) (string, string, error) {
 	if c.ZoneName == "" {
 		return "", "", fmt.Errorf("cloudflare zone is not configured")
@@ -425,7 +517,7 @@ func resolveCFZone(c cloudflareConfig) (string, string, error) {
 	if cfZoneID != "" && c.ZoneName == cfZoneName {
 		return cfZoneID, c.ZoneName, nil
 	}
-	v, e := cfRequestWithToken("GET", "/zones?name="+url.QueryEscape(c.ZoneName)+"&status=active&per_page=1", c.APIToken, nil)
+	v, e := cfZoneRequest(c, "GET", "/zones?name="+url.QueryEscape(c.ZoneName)+"&status=active&per_page=1", nil)
 	if e != nil {
 		return "", c.ZoneName, e
 	}
@@ -510,7 +602,7 @@ func cloudflareTestHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, accounts, _ := detectCFAccounts(c)
-	result := R{"ok": true, "account_ok": false, "zone_ok": false, "r2_ok": false, "zone_name": c.ZoneName, "accounts": accounts, "account_id": c.AccountID, "capabilities": cfTokenCapabilities(c)}
+	result := R{"ok": true, "account_ok": false, "zone_ok": false, "r2_ok": false, "zone_name": c.ZoneName, "accounts": accounts, "account_id": c.AccountID, "capabilities": cfEffectiveCapabilities(c)}
 	if v, e := cfRequestWithToken("GET", "/accounts/"+url.PathEscape(c.AccountID), c.APIToken, nil); e == nil {
 		result["account_ok"] = true
 		if m, ok := v["result"].(map[string]any); ok {
@@ -588,7 +680,7 @@ func cloudflareZones(c cloudflareConfig) ([]R, error) {
 	if c.AccountID == "" || c.APIToken == "" {
 		return nil, fmt.Errorf("cloudflare account is not configured")
 	}
-	v, e := cfRequestWithToken("GET", "/zones?account.id="+url.QueryEscape(c.AccountID)+"&per_page=100&order=name&direction=asc", c.APIToken, nil)
+	v, e := cfZoneRequest(c, "GET", "/zones?account.id="+url.QueryEscape(c.AccountID)+"&per_page=100&order=name&direction=asc", nil)
 	if e != nil {
 		return nil, e
 	}
@@ -627,7 +719,7 @@ func cloudflareZonesHandler(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, "invalid domain")
 			return
 		}
-		v, e := cfRequestWithToken("POST", "/zones", c.APIToken, map[string]any{"account": map[string]any{"id": c.AccountID}, "name": name, "type": "full"})
+		v, e := cfZoneRequest(c, "POST", "/zones", map[string]any{"account": map[string]any{"id": c.AccountID}, "name": name, "type": "full"})
 		if e != nil {
 			fail(w, 502, e.Error())
 			return
@@ -649,7 +741,7 @@ func cloudflareZonesHandler(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, "confirmation required")
 			return
 		}
-		v, e := cfRequestWithToken("GET", "/zones/"+id, c.APIToken, nil)
+		v, e := cfZoneRequest(c, "GET", "/zones/"+id, nil)
 		if e != nil {
 			fail(w, 502, e.Error())
 			return
@@ -660,7 +752,7 @@ func cloudflareZonesHandler(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, "domain confirmation does not match")
 			return
 		}
-		if _, e = cfRequestWithToken("DELETE", "/zones/"+id, c.APIToken, nil); e != nil {
+		if _, e = cfZoneRequest(c, "DELETE", "/zones/"+id, nil); e != nil {
 			fail(w, 502, e.Error())
 			return
 		}
@@ -691,7 +783,7 @@ func cloudflareZoneSettingsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == "GET" {
-		v, e := cfRequestWithToken("GET", "/zones/"+id+"/settings", c.APIToken, nil)
+		v, e := cfZoneRequest(c, "GET", "/zones/"+id+"/settings", nil)
 		if e != nil {
 			fail(w, 502, e.Error())
 			return
@@ -724,7 +816,7 @@ func cloudflareZoneSettingsHandler(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, "setting not allowed")
 			return
 		}
-		v, e := cfRequestWithToken("PATCH", "/zones/"+id+"/settings/"+in.Setting, c.APIToken, map[string]any{"value": in.Value})
+		v, e := cfZoneRequest(c, "PATCH", "/zones/"+id+"/settings/"+in.Setting, map[string]any{"value": in.Value})
 		if e != nil {
 			fail(w, 502, e.Error())
 			return
@@ -763,7 +855,7 @@ func cloudflareCacheHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		payload = map[string]any{"files": in.Files}
 	}
-	if _, e = cfRequestWithToken("POST", "/zones/"+id+"/purge_cache", c.APIToken, payload); e != nil {
+	if _, e = cfZoneRequest(c, "POST", "/zones/"+id+"/purge_cache", payload); e != nil {
 		fail(w, 502, e.Error())
 		return
 	}
@@ -874,7 +966,7 @@ func cfEnsureTunnelDNS(c cloudflareConfig, tunnelID, host string) error {
 		return e
 	}
 	target := tunnelID + ".cfargotunnel.com"
-	v, e := cfRequestWithToken("GET", "/zones/"+zoneID+"/dns_records?name="+url.QueryEscape(host)+"&per_page=20", c.APIToken, nil)
+	v, e := cfZoneRequest(c, "GET", "/zones/"+zoneID+"/dns_records?name="+url.QueryEscape(host)+"&per_page=20", nil)
 	if e != nil {
 		return e
 	}
@@ -885,10 +977,10 @@ func cfEnsureTunnelDNS(c cloudflareConfig, tunnelID, host string) error {
 		if typ != "CNAME" {
 			return fmt.Errorf("hostname already has non-CNAME DNS record")
 		}
-		_, e = cfRequestWithToken("PATCH", "/zones/"+zoneID+"/dns_records/"+rid, c.APIToken, map[string]any{"type": "CNAME", "name": host, "content": target, "ttl": 1, "proxied": true})
+		_, e = cfZoneRequest(c, "PATCH", "/zones/"+zoneID+"/dns_records/"+rid, map[string]any{"type": "CNAME", "name": host, "content": target, "ttl": 1, "proxied": true})
 		return e
 	}
-	_, e = cfRequestWithToken("POST", "/zones/"+zoneID+"/dns_records", c.APIToken, map[string]any{"type": "CNAME", "name": host, "content": target, "ttl": 1, "proxied": true})
+	_, e = cfZoneRequest(c, "POST", "/zones/"+zoneID+"/dns_records", map[string]any{"type": "CNAME", "name": host, "content": target, "ttl": 1, "proxied": true})
 	return e
 }
 
@@ -897,7 +989,7 @@ func cfDeleteTunnelDNS(c cloudflareConfig, tunnelID, host string) error {
 	if e != nil {
 		return e
 	}
-	v, e := cfRequestWithToken("GET", "/zones/"+zoneID+"/dns_records?name="+url.QueryEscape(host)+"&type=CNAME&per_page=20", c.APIToken, nil)
+	v, e := cfZoneRequest(c, "GET", "/zones/"+zoneID+"/dns_records?name="+url.QueryEscape(host)+"&type=CNAME&per_page=20", nil)
 	if e != nil {
 		return e
 	}
@@ -905,7 +997,7 @@ func cfDeleteTunnelDNS(c cloudflareConfig, tunnelID, host string) error {
 		for _, raw := range a {
 			m, _ := raw.(map[string]any)
 			if strings.EqualFold(fmt.Sprint(m["content"]), tunnelID+".cfargotunnel.com") {
-				_, e = cfRequestWithToken("DELETE", "/zones/"+zoneID+"/dns_records/"+fmt.Sprint(m["id"]), c.APIToken, nil)
+				_, e = cfZoneRequest(c, "DELETE", "/zones/"+zoneID+"/dns_records/"+fmt.Sprint(m["id"]), nil)
 				return e
 			}
 		}
@@ -987,7 +1079,7 @@ func cfEnsureZoneForHostname(c cloudflareConfig, host string) (cloudflareConfig,
 	if zid != "" {
 		return c, zid, best, status, ns, nil
 	}
-	v, e := cfRequestWithToken("POST", "/zones", c.APIToken, map[string]any{"account": map[string]any{"id": c.AccountID}, "name": host, "type": "full"})
+	v, e := cfZoneRequest(c, "POST", "/zones", map[string]any{"account": map[string]any{"id": c.AccountID}, "name": host, "type": "full"})
 	if e != nil {
 		return c, "", "", "", nil, e
 	}

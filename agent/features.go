@@ -536,7 +536,7 @@ func cfRequest(method, endpoint string, payload any) (map[string]any, error) {
 	if c.APIToken == "" {
 		return nil, fmt.Errorf("cloudflare API token is not configured")
 	}
-	return cfRequestWithToken(method, endpoint, c.APIToken, payload)
+	return cfZoneRequest(c, method, endpoint, payload)
 }
 
 func dnsRecords(w http.ResponseWriter, r *http.Request) {
